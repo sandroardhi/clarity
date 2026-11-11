@@ -54,6 +54,17 @@ async function canonicalizeSnapshots(client: PoolClient): Promise<void> {
   }
 }
 
+// Each statement commits alone, so migrate never holds locks on two tables at once and cannot deadlock with live writes.
+export function schemaStatements(sql: string = SCHEMA_SQL): string[] {
+  return sql
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 // Run once each, in order, after SCHEMA_SQL. Never edit or reorder a released step.
 export const DATA_MIGRATIONS: { name: string; run: (client: PoolClient) => Promise<unknown> }[] = [
   {
@@ -130,7 +141,7 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
     const client = await this.pool.connect();
     try {
       await client.query("SELECT pg_advisory_lock($1)", [MIGRATE_LOCK]);
-      await client.query(SCHEMA_SQL);
+      for (const statement of schemaStatements()) await client.query(statement);
       for (const migration of DATA_MIGRATIONS) {
         try {
           await client.query("BEGIN");
@@ -336,7 +347,7 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
       `INSERT INTO page_index (project_id, page_key, device, last_url, first_seen, last_seen, views, clicks)
        VALUES ($1, $2, $3, $4, $5, $5, $6, $7)
        ON CONFLICT (project_id, page_key, device) DO UPDATE
-       SET last_url = EXCLUDED.last_url,
+       SET last_url = CASE WHEN EXCLUDED.last_seen >= page_index.last_seen THEN EXCLUDED.last_url ELSE page_index.last_url END,
            last_seen = GREATEST(page_index.last_seen, EXCLUDED.last_seen),
            views = page_index.views + EXCLUDED.views,
            clicks = page_index.clicks + EXCLUDED.clicks`,

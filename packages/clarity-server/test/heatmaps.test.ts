@@ -142,6 +142,23 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
       });
     });
 
+    test("concurrent collects keep every view and click, and the page URL only moves forward", async () => {
+      const id = `race_${uid()}`;
+      const repo = makeRepo();
+      await withServer(repo, async (base) => {
+        await project(base, id);
+        await Promise.all(Array.from({ length: 20 }, (_, n) =>
+          collect(base, payload(id, "https://shop.example.com/r", 1, [doc, resize(1280, 900), click], `s${n}`), ORIGIN)));
+        const [row] = await repo.listPageIndex(id);
+        expect(row).toMatchObject({ views: 20, clicks: 20 });
+
+        const a = { projectId: id, pageKey: "shop.example.com/r", device: "desktop" as const, views: 0, clicks: 0 };
+        await repo.recordPageActivity({ ...a, url: "https://new.example/r", at: row.lastSeen + 1000 });
+        await repo.recordPageActivity({ ...a, url: "https://old.example/r", at: row.lastSeen });
+        expect((await repo.listPageIndex(id))[0]).toMatchObject({ lastUrl: "https://new.example/r", lastSeen: row.lastSeen + 1000 });
+      });
+    });
+
     test("versioned upsert: stale writes get 409, omitted fields keep stored values", async () => {
       const id = `ver_${uid()}`;
       await withServer(makeRepo(), async (base) => {

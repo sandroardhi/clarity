@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { DATA_MIGRATIONS, MIGRATE_LOCK, PgAnalyticsRepository } from "../src/db/postgres";
+import { DATA_MIGRATIONS, MIGRATE_LOCK, PgAnalyticsRepository, schemaStatements } from "../src/db/postgres";
 import { RawClickRecord } from "../src/types";
 import { uid } from "./helper";
 
@@ -14,6 +14,20 @@ test.describe("postgres repository", () => {
   test.afterAll(async () => {
     await repo.close();
   });
+
+  // Data migrations and index changes act on whole tables, so they run in a private schema
+  async function withSchema(fn: (scoped: PgAnalyticsRepository) => Promise<void>): Promise<void> {
+    const schema = `t_${uid()}`.toLowerCase();
+    await repo.getPool().query(`CREATE SCHEMA ${schema}`);
+    const scoped = new PgAnalyticsRepository({ connectionString: process.env.DATABASE_URL, options: `-c search_path=${schema}` });
+    try {
+      await scoped.migrate();
+      await fn(scoped);
+    } finally {
+      await scoped.close();
+      await repo.getPool().query(`DROP SCHEMA ${schema} CASCADE`);
+    }
+  }
 
   test("stores and aggregates telemetry", async () => {
     const id = `test_proj_${uid()}`;
@@ -82,7 +96,7 @@ test.describe("postgres repository", () => {
     await repo.ping();
   });
 
-  test("migration 002 canonicalizes old page URLs and 003 backfills the page index", async () => {
+  test("migration 002 canonicalizes old page URLs and 003 backfills the page index", async () => withSchema(async (repo) => {
     const id = `mig_${uid()}`;
     const pool = repo.getPool();
     await repo.createProject({ id, name: id, allowedDomains: [], excludePatterns: [], isActive: true, version: null, createdAt: 0 });
@@ -114,8 +128,8 @@ test.describe("postgres repository", () => {
       projectId: id, pageKey: "shop.example.com/a", device: "desktop", lastUrl: "https://shop.example.com/a",
       firstSeen: 1000, lastSeen: 3000, views: 1, clicks: 2
     }]);
-  });
-  test("retention has timestamp indexes and the unused group index is gone", async () => {
+  }));
+  test("retention has timestamp indexes and the unused group index is gone", async () => withSchema(async (repo) => {
     const pool = repo.getPool();
     await pool.query("CREATE INDEX IF NOT EXISTS idx_raw_clicks_group ON raw_clicks (project_id, page_url, hash, e_x, e_y)");
     await repo.migrate();
@@ -125,5 +139,12 @@ test.describe("postgres repository", () => {
     expect(names).toEqual(expect.arrayContaining([
       "idx_raw_clicks_timestamp", "idx_raw_scrolls_timestamp", "idx_page_snapshots_timestamp", "idx_page_index_last_seen"
     ]));
+  }));
+
+  test("schema runs one statement at a time, without comments", () => {
+    const statements = schemaStatements();
+    expect(statements.length).toBeGreaterThan(10);
+    expect(statements.some((s) => s.includes("--") || s.includes(";"))).toBe(false);
+    expect(statements).toContain("DROP INDEX IF EXISTS idx_raw_clicks_group");
   });
 });

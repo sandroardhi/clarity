@@ -220,7 +220,7 @@ export class MemoryAnalyticsRepository implements IAnalyticsRepository {
       });
       return;
     }
-    row.lastUrl = a.url;
+    if (a.at >= row.lastSeen) row.lastUrl = a.url;
     row.lastSeen = Math.max(row.lastSeen, a.at);
     row.views += a.views;
     row.clicks += a.clicks;
