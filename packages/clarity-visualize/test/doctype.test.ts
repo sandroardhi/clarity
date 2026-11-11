@@ -8,7 +8,7 @@ async function renderDoctype(
 ): Promise<{ publicId: string; systemId: string; tags: string[]; mode: string }> {
     return page.evaluate(async ({ recorded, child }) => {
         const replay = (document.querySelector("#replay") as HTMLIFrameElement).contentWindow;
-        const visualize = (window as any).clarity.visualize;
+        const visualize = (window as any).skalplHeatmap.visualize;
         visualize.setup(replay, {});
         await visualize.dom({
             time: 0, event: 5, data: [

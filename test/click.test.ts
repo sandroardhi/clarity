@@ -8,7 +8,7 @@ import type { Data } from "clarity-decode";
 
 declare global {
     interface Window {
-        clarity: (method: string, ...args: any[]) => void;
+        skalplHeatmap: (method: string, ...args: any[]) => void;
         payloads: string[];
     }
 }
@@ -27,7 +27,7 @@ async function setupPage(page: Page, options: Record<string, any> = {}): Promise
         <script>
           window.payloads = [];
           ${readFileSync(resolve(__dirname, `../packages/clarity-js/build/clarity.min.js`), 'utf8')};
-          clarity("start", {
+          skalplHeatmap("start", {
             ...${configOptions},
             "upload": (payload) => { window.payloads.push(payload); }
           });

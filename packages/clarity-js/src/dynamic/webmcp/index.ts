@@ -9,7 +9,7 @@ export function start(): void {
     return;
   }
 
-  const clarity = (window as any).clarity;
+  const clarity = (window as any).skalplHeatmap;
 
   if (initialized || typeof clarity !== "function") {
     return;

@@ -9,7 +9,7 @@ const changeEvent: Data.Event.Change = 42;
 
 declare global {
     interface Window {
-        clarity: (method: string, ...args: any[]) => void,
+        skalplHeatmap: (method: string, ...args: any[]) => void,
         payloads: string[];
     }
 }
@@ -23,7 +23,7 @@ export async function markup(page: Page, file: string, override?: Core.Config): 
         <script>
           window.payloads = [];
           ${readFileSync(resolve(__dirname, `../packages/clarity-js/build/clarity.min.js`), 'utf8')};
-          clarity("start", ${config(override)});
+          skalplHeatmap("start", ${config(override)});
         </script>
         </body>
     `));
@@ -106,7 +106,7 @@ function config(override?: Core.Config): string {
         regions: [],
         mask: [],
         unmask: [],
-        upload: (payload: string) => { window.payloads.push(payload); window.clarity("upgrade", "test"); },
+        upload: (payload: string) => { window.payloads.push(payload); window.skalplHeatmap("upgrade", "test"); },
         ...override,
     };
 

@@ -54,14 +54,14 @@ for (const names of cases) {
                 delay: 100,
                 upload: (payload: string): void => { window.payloads.push(payload); }
             };
-            window.clarity("start", config);
+            window.skalplHeatmap("start", config);
         });
 
         await expect.poll(async () => {
             const pendingPayloads = await page.evaluate(() => window.payloads);
             return node(pendingPayloads.map(payload => decode(payload)), "attributes", "capture-svg", "id");
         }).not.toBeNull();
-        await page.evaluate(() => window.clarity("stop"));
+        await page.evaluate(() => window.skalplHeatmap("stop"));
         const payloads = await page.evaluate(() => window.payloads);
         const decoded = payloads.map(payload => decode(payload));
         const captured = node(decoded, "attributes", "capture-attributes", "id");
@@ -74,7 +74,7 @@ for (const names of cases) {
         await localPage(page);
         await page.addScriptTag({ path: join(__dirname, "../packages/clarity-visualize/build/clarity.visualize.min.js") });
         const result = await page.evaluate(async ({ attributes, value, buildVersion }) => {
-            const api: Visualizer = Reflect.get(Reflect.get(window, "clarity"), "visualize");
+            const api: Visualizer = Reflect.get(Reflect.get(window, "skalplHeatmap"), "visualize");
             const iframe = document.createElement("iframe");
             iframe.setAttribute("sandbox", "allow-same-origin");
             document.body.appendChild(iframe);

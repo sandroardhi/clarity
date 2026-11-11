@@ -12,7 +12,7 @@ import { join } from "path";
  * animation whose effect targets a pseudo-element.
  */
 
-// Use the minified browser build which exposes window.clarity.
+// Use the minified browser build which exposes window.skalplHeatmap.
 const clarityJsPath = join(__dirname, "../build/clarity.min.js");
 
 interface CaptureResult {
@@ -35,7 +35,7 @@ test.describe("animation - pseudo-element capture", () => {
     test("skips pseudo-element animations but still captures normal animations", async ({ page }) => {
         const result: CaptureResult = await page.evaluate(() => {
             return new Promise<CaptureResult>((resolve) => {
-                (window as any).clarity("start", { projectId: "test", track: false, upload: false });
+                (window as any).skalplHeatmap("start", { projectId: "test", track: false, upload: false });
 
                 // Let Clarity discover the DOM, then spy on the crash-triggering calls and
                 // exercise both a pseudo-element animation and a normal animation.

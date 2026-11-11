@@ -31,7 +31,7 @@ test.describe('History Tests', () => {
             <script>
               window.payloads = [];
               ${clarityJs};
-              clarity("start", { delay: 100, projectId: "test", upload: (p) => { window.payloads.push(p); window.clarity("upgrade", "test"); } });
+              skalplHeatmap("start", { delay: 100, projectId: "test", upload: (p) => { window.payloads.push(p); window.skalplHeatmap("upgrade", "test"); } });
             </script>
             </body>
         `));
@@ -83,7 +83,7 @@ test.describe('History Tests', () => {
 
     // Verifies the configurable SPA restart delay: on a URL change, history.ts schedules the
     // restart via window.setTimeout(restart, config.restart). We spy on setTimeout and assert
-    // the recorded delay matches the value passed to clarity("start", ...).
+    // the recorded delay matches the value passed to skalplHeatmap("start", ...).
     test('should schedule the SPA restart using the configured restart delay', async ({ page }) => {
         const htmlPath = resolve(__dirname, './html/core.html');
         const html = readFileSync(htmlPath, 'utf8');
@@ -99,7 +99,7 @@ test.describe('History Tests', () => {
                 return __nativeSetTimeout.apply(this, arguments);
               };
               ${clarityJs};
-              clarity("start", { delay: 100, restart: 1234, projectId: "test", upload: (p) => { window.payloads.push(p); window.clarity("upgrade", "test"); } });
+              skalplHeatmap("start", { delay: 100, restart: 1234, projectId: "test", upload: (p) => { window.payloads.push(p); window.skalplHeatmap("upgrade", "test"); } });
             </script>
             </body>
         `));
@@ -133,7 +133,7 @@ test.describe('History Tests', () => {
                 return __nativeSetTimeout.apply(this, arguments);
               };
               ${clarityJs};
-              clarity("start", { delay: 100, restart: undefined, projectId: "test", upload: (p) => { window.payloads.push(p); window.clarity("upgrade", "test"); } });
+              skalplHeatmap("start", { delay: 100, restart: undefined, projectId: "test", upload: (p) => { window.payloads.push(p); window.skalplHeatmap("upgrade", "test"); } });
             </script>
             </body>
         `));

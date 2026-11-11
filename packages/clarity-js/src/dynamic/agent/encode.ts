@@ -2,7 +2,7 @@ import { Event, Token } from "@clarity-types/data";
 import { Action } from "@clarity-types/agent";
 
 export default function (event: Action): void {
-  const t = (window as any).clarity("time");
+  const t = (window as any).skalplHeatmap("time");
   let tokens: Token[] = [t, Event.Chat];
   switch (event) {
     case Action.AgentOnline:
@@ -19,7 +19,7 @@ export default function (event: Action): void {
 }
 
 function queueTokens(tokens: Token[]) {
-  if (typeof window !== "undefined" && (window as any).clarity) {
-    (window as any).clarity("queue", tokens);
+  if (typeof window !== "undefined" && (window as any).skalplHeatmap) {
+    (window as any).skalplHeatmap("queue", tokens);
   }
 }

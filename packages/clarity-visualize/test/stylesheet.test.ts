@@ -153,7 +153,7 @@ test.describe("replay stylesheet lifecycle", () => {
         await page.route("https://provider.invalid/old.css", (): void => undefined);
         await page.route("https://provider.invalid/replacement.css", acceptReplacement);
         const state = await page.evaluateHandle(async () => {
-            const api = (window as Window & { clarity: { visualize: typeof import("@src/clarity") } }).clarity.visualize;
+            const api = (window as Window & { skalplHeatmap: { visualize: typeof import("@src/clarity") } }).skalplHeatmap.visualize;
             const visualizer = await api.setup(window, { version: "0.8.72" });
             const oldLayout = visualizer.layout;
             oldLayout.nodes[1] = document.head;
@@ -194,7 +194,7 @@ test.describe("replay stylesheet lifecycle", () => {
                     body: ""
                 }));
             const result = await page.evaluate(async (loading: string) => {
-                const api = (window as Window & { clarity: { visualize: typeof import("@src/clarity") } }).clarity.visualize;
+                const api = (window as Window & { skalplHeatmap: { visualize: typeof import("@src/clarity") } }).skalplHeatmap.visualize;
                 const urls: string[] = [];
                 const visualizer = await api.setup(window, {
                     version: "0.8.72",
@@ -239,7 +239,7 @@ test.describe("replay stylesheet lifecycle", () => {
         // Hold both requests so only the controlled clock can finish each attempt.
         await page.route("https://provider.invalid/slow.css", (): void => { requests++; });
         const state = await page.evaluateHandle(async () => {
-            const api = (window as Window & { clarity: { visualize: typeof import("@src/clarity") } }).clarity.visualize;
+            const api = (window as Window & { skalplHeatmap: { visualize: typeof import("@src/clarity") } }).skalplHeatmap.visualize;
             const outcomes: StylesheetOutcome[] = [];
             const visualizer = await api.setup(window, {
                 version: "0.8.72",
@@ -296,7 +296,7 @@ test.describe("replay stylesheet lifecycle", () => {
         const requested = new Promise<Route>((accept: (requestRoute: Route) => void): void => { capture = accept; });
         await page.route("https://provider.invalid/slow.css", capture);
         const state = await page.evaluateHandle(async () => {
-            const api = (window as Window & { clarity: { visualize: typeof import("@src/clarity") } }).clarity.visualize;
+            const api = (window as Window & { skalplHeatmap: { visualize: typeof import("@src/clarity") } }).skalplHeatmap.visualize;
             const visualizer = await api.setup(window, { version: "0.8.72" });
             const layout = visualizer.layout;
             layout.nodes[1] = document.head;
@@ -334,7 +334,7 @@ test.describe("replay stylesheet lifecycle", () => {
             // Keep the load pending so only its readiness timeout can reveal replay.
             await page.route("https://provider.invalid/pending.css", (): void => undefined);
             const state = await page.evaluateHandle(async ({ removed, loading }) => {
-                const api = (window as Window & { clarity: { visualize: typeof import("@src/clarity") } }).clarity.visualize;
+                const api = (window as Window & { skalplHeatmap: { visualize: typeof import("@src/clarity") } }).skalplHeatmap.visualize;
                 const outcomes: StylesheetOutcome[] = [];
                 const visualizer = await api.setup(window, {
                     version: "0.8.72",
@@ -379,7 +379,7 @@ test.describe("replay stylesheet lifecycle", () => {
 
     test("reset settles pending stylesheet loading after the replay iframe is removed", async ({ page }) => {
         const result = await page.evaluate(async () => {
-            const api = (window as Window & { clarity: { visualize: typeof import("@src/clarity") } }).clarity.visualize;
+            const api = (window as Window & { skalplHeatmap: { visualize: typeof import("@src/clarity") } }).skalplHeatmap.visualize;
             const iframe = document.createElement("iframe");
             document.body.appendChild(iframe);
             const visualizer = await api.setup(iframe.contentWindow, { version: "0.8.72" });
@@ -407,7 +407,7 @@ test.describe("replay stylesheet lifecycle", () => {
 
     test("transforms a loaded stylesheet and applies replay hover styling", async ({ page }) => {
         const result = await page.evaluate(async () => {
-            const api = (window as Window & { clarity: { visualize: typeof import("@src/clarity") } }).clarity.visualize;
+            const api = (window as Window & { skalplHeatmap: { visualize: typeof import("@src/clarity") } }).skalplHeatmap.visualize;
             const outcomes: StylesheetOutcome[] = [];
             const visualizer = await api.setup(window, {
                 version: "0.8.72",
@@ -440,7 +440,7 @@ test.describe("replay stylesheet lifecycle", () => {
     for (const scenario of ["empty", "insertion-failure", "unexpected", "unavailable", "fallback"]) {
         test(`preserves successful loading for a ${scenario} stylesheet`, async ({ page }) => {
             const result = await page.evaluate(async (mode: string) => {
-                const api = (window as Window & { clarity: { visualize: typeof import("@src/clarity") } }).clarity.visualize;
+                const api = (window as Window & { skalplHeatmap: { visualize: typeof import("@src/clarity") } }).skalplHeatmap.visualize;
                 const outcomes: StylesheetOutcome[] = [];
                 const errors: string[] = [];
                 const visualizer = await api.setup(window, {
@@ -512,7 +512,7 @@ test.describe("replay stylesheet lifecycle", () => {
         test(`removing a stylesheet cancels its ${fallback ? "fallback" : "initial"} load without restarting it`, async ({ page }) => {
             await page.clock.install();
             const state = await page.evaluateHandle(async (retry: boolean) => {
-                const api = (window as Window & { clarity: { visualize: typeof import("@src/clarity") } }).clarity.visualize;
+                const api = (window as Window & { skalplHeatmap: { visualize: typeof import("@src/clarity") } }).skalplHeatmap.visualize;
                 const outcomes: StylesheetOutcome[] = [];
                 const visualizer = await api.setup(window, {
                     version: "0.8.72",
@@ -560,7 +560,7 @@ test.describe("replay stylesheet lifecycle", () => {
     for (const change of ["href", "rel", "reset", "fallback"]) {
         test(`a stale load cannot overwrite a ${change} mutation`, async ({ page }) => {
             const result = await page.evaluate(async (mutation: string) => {
-                const api = (window as Window & { clarity: { visualize: typeof import("@src/clarity") } }).clarity.visualize;
+                const api = (window as Window & { skalplHeatmap: { visualize: typeof import("@src/clarity") } }).skalplHeatmap.visualize;
                 const outcomes: StylesheetOutcome[] = [];
                 const visualizer = await api.setup(window, {
                     version: "0.8.72",
@@ -614,7 +614,7 @@ test.describe("replay stylesheet lifecycle", () => {
     for (const access of ["sheet", "cssRules"]) {
         test(`reports a loaded stylesheet without logging ${access} access errors`, async ({ page }) => {
             const result = await page.evaluate(async (property: string) => {
-                const api = (window as Window & { clarity: { visualize: typeof import("@src/clarity") } }).clarity.visualize;
+                const api = (window as Window & { skalplHeatmap: { visualize: typeof import("@src/clarity") } }).skalplHeatmap.visualize;
                 const outcomes: StylesheetOutcome[] = [];
                 const errors: string[] = [];
                 const visualizer = await api.setup(window, {

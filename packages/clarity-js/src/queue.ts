@@ -2,7 +2,7 @@ import { Constant } from "@clarity-types/data";
 import * as clarity from "@src/clarity";
 
 const w = window; 
-const c = Constant.Clarity;
+const c = Constant.Global;
 
 export function setup() {
     // Start queuing up calls while Clarity is inactive and we are in a browser enviornment    
@@ -17,7 +17,7 @@ export function setup() {
 
 export function process() {
     if (typeof w !== "undefined") {
-        // Do not execute or reset global "clarity" variable if a version of Clarity is already running on the page
+        // Do not execute or reset global tracker variable if a version of Clarity is already running on the page
         if (w[c] && w[c].v) { return console.warn("Error CL001: Multiple Clarity tags detected."); }
 
         // Expose clarity in a browser environment

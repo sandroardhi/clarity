@@ -31,9 +31,9 @@ interface ConsentTestResult {
 const Constant = {
     Granted: "granted",
     Denied: "denied",
-    CookieKey: "_clck",
-    SessionKey: "_clsk",
-    TabKey: "_cltk",
+    CookieKey: "_skhmu",
+    SessionKey: "_skhms",
+    TabKey: "_skhmt",
 } as const;
 
 const ConsentSource = {
@@ -52,7 +52,7 @@ const CONSENT_CALLBACK_TIMEOUT = 2000;
 // Delay from when cookie mock is set up to when Clarity can reliably read it
 const COOKIE_SETUP_DELAY = 500;
 
-// Use the minified browser build which properly exposes window.clarity
+// Use the minified browser build which properly exposes window.skalplHeatmap
 const clarityJsPath = join(__dirname, "../build/clarity.min.js");
 
 /**
@@ -124,7 +124,7 @@ test.describe("consentv2 - Production API", () => {
         // Start clarity with track=false (cookies disabled, no network calls)
         const result = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: false,
                     upload: false
@@ -134,7 +134,7 @@ test.describe("consentv2 - Production API", () => {
                 // Signature: clarity('metadata', callback, wait, recall, consentInfo)
                 // The callback receives (data, upgrade, consent)
                 // wait=false (don't wait for data), recall=true (resend on changes), consentInfo=true (include consent)
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) {
                         const cookies = document.cookie;
                         const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -182,7 +182,7 @@ test.describe("consentv2 - Production API", () => {
         // so we manually mock the cookie rather than using setupCookieMock
         const result = await page.evaluate(({ sessionKey, cookieKey }) => {
             // Mock document.cookie to simulate a consent cookie
-            // Format: _clck cookie with consent flag set to 1 (granted)
+            // Format: _skhmu cookie with consent flag set to 1 (granted)
             // Cookie format: userId^version^expiry^consent^dob
             const userId = "testuser123";
             const version = "2";
@@ -207,14 +207,14 @@ test.describe("consentv2 - Production API", () => {
 
             return new Promise((resolve) => {
                 // Start clarity with track=false but with consent cookie present
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: false,
                     upload: false
                 });
 
                 // Register metadata callback
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) {
                         const cookies = document.cookie;
                         const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -288,19 +288,19 @@ test.describe("consentv2 - Production API", () => {
         // Start with track=false (implicit denied), then explicitly deny via consentv2
         const result = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: false,
                     upload: false
                 });
 
                 setTimeout(() => {
-                    (window as any).clarity("consentv2", {
+                    (window as any).skalplHeatmap("consentv2", {
                         ad_Storage: "denied",
                         analytics_Storage: "denied"
                     });
 
-                    (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                    (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                         if (consent) {
                             const cookies = document.cookie;
                             const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -357,18 +357,18 @@ test.describe("consentv2 - Production API", () => {
 
         const result = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: false,
                     upload: false
                 });
 
-                (window as any).clarity("consentv2", {
+                (window as any).skalplHeatmap("consentv2", {
                     ad_Storage: "granted",
                     analytics_Storage: "denied"
                 });
 
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) {
                         const cookies = document.cookie;
                         const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -425,19 +425,19 @@ test.describe("consentv2 - Production API", () => {
         // Start with track=false, then grant analytics but deny ads
         const result = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: false,
                     upload: false
                 });
 
                 setTimeout(() => {
-                    (window as any).clarity("consentv2", {
+                    (window as any).skalplHeatmap("consentv2", {
                         ad_Storage: "denied",
                         analytics_Storage: "granted"
                     });
 
-                    (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                    (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                         if (consent) {
                             const cookies = document.cookie;
                             const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -464,7 +464,7 @@ test.describe("consentv2 - Production API", () => {
         expect(consentResult.consent.source).toBe(ConsentSource.APIv2);
         expect(consentResult.consent.ad_Storage).toBe(Constant.Denied);
         expect(consentResult.consent.analytics_Storage).toBe(Constant.Granted);
-        // Verify _clck cookie is set when analytics granted (even if ads denied)
+        // Verify _skhmu cookie is set when analytics granted (even if ads denied)
         expect(consentResult.hasClckCookie).toBe(true);
         expect(consentResult.clckCookieValue).not.toBe("");
     });
@@ -493,13 +493,13 @@ test.describe("consentv2 - Production API", () => {
         // Start with track=false (implicit denied) and verify initial consent state
         const initialConsent = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: false,
                     upload: false
                 });
 
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) {
                         const cookies = document.cookie;
                         const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -532,12 +532,12 @@ test.describe("consentv2 - Production API", () => {
         // Grant consent via consentv2 API
         const updatedConsent = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("consentv2", {
+                (window as any).skalplHeatmap("consentv2", {
                     ad_Storage: "granted",
                     analytics_Storage: "granted"
                 });
 
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) {
                         const cookies = document.cookie;
                         const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -570,7 +570,7 @@ test.describe("consentv2 - Production API", () => {
         expect(updatedResult.clckCookieValue).not.toBe("");
     });
 
-    test("consentv2 assigns a stable tab id on consent grant: track=false → _cltk persisted", async ({ page }) => {
+    test("consentv2 assigns a stable tab id on consent grant: track=false → _skhmt persisted", async ({ page }) => {
         // sessionStorage is disabled inside data: URLs, so serve the page from a real (https) origin
         await page.route("https://clarity.test/**", (route) => route.fulfill({
             contentType: "text/html",
@@ -584,8 +584,8 @@ test.describe("consentv2 - Production API", () => {
         // Start with track=false (consent-required region, pre-consent): no tab id is assigned yet.
         const beforeConsent = await page.evaluate(({ tabKey, timeout }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", { projectId: "test", track: false, upload: false });
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("start", { projectId: "test", track: false, upload: false });
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) { resolve({ tabId: sessionStorage.getItem(tabKey) }); }
                 }, false, false, true);
                 setTimeout(() => resolve({ tabId: sessionStorage.getItem(tabKey) }), timeout);
@@ -597,8 +597,8 @@ test.describe("consentv2 - Production API", () => {
         // Grant consent: a stable tab id is now assigned and persisted to sessionStorage.
         const afterConsent = await page.evaluate(({ tabKey, timeout }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("consentv2", { ad_Storage: "granted", analytics_Storage: "granted" });
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("consentv2", { ad_Storage: "granted", analytics_Storage: "granted" });
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) { resolve({ tabId: sessionStorage.getItem(tabKey) }); }
                 }, false, false, true);
                 setTimeout(() => resolve({ tabId: sessionStorage.getItem(tabKey) }), timeout);
@@ -638,7 +638,7 @@ test.describe("consentv2 - Production API", () => {
         // Start clarity with track=true (implicit granted consent)
         const result = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: true,
                     upload: false
@@ -646,7 +646,7 @@ test.describe("consentv2 - Production API", () => {
 
                 // Register metadata callback
                 // wait=false (don't wait for data), recall=true (resend on changes), consentInfo=true (include consent)
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) {
                         const cookies = document.cookie;
                         const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -684,7 +684,7 @@ test.describe("consentv2 - Production API", () => {
         expect(consentResult.consent.source).toBe(ConsentSource.Implicit);
         expect(consentResult.consent.ad_Storage).toBe(Constant.Granted);
         expect(consentResult.consent.analytics_Storage).toBe(Constant.Granted);
-        // With track=true, _clck cookie should be set
+        // With track=true, _skhmu cookie should be set
         expect(consentResult.hasClckCookie).toBe(true);
         expect(consentResult.clckCookieValue).not.toBe("");
     });
@@ -713,14 +713,14 @@ test.describe("consentv2 - Production API", () => {
         // Step 1: Start with track=true and verify initial granted state with cookies
         const initialConsent = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: true,
                     upload: false
                 });
 
                 // Get initial consent state
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) {
                         const cookies = document.cookie;
                         const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -752,13 +752,13 @@ test.describe("consentv2 - Production API", () => {
         // Step 2: Call consentv2 API to deny consent and verify cookies are deleted
         const updatedConsent = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("consentv2", {
+                (window as any).skalplHeatmap("consentv2", {
                     ad_Storage: "denied",
                     analytics_Storage: "denied"
                 });
 
                 // Get updated consent state and cookie status
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) {
                         const cookies = document.cookie;
                         const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -814,18 +814,18 @@ test.describe("consentv2 - Production API", () => {
 
         const result = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: true,
                     upload: false
                 });
 
-                (window as any).clarity("consentv2", {
+                (window as any).skalplHeatmap("consentv2", {
                     ad_Storage: "denied",
                     analytics_Storage: "granted"
                 });
 
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) {
                         const cookies = document.cookie;
                         const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -882,19 +882,19 @@ test.describe("consentv2 - Production API", () => {
         // Start with track=true, then deny analytics but grant ads
         const result = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: true,
                     upload: false
                 });
 
                 setTimeout(() => {
-                    (window as any).clarity("consentv2", {
+                    (window as any).skalplHeatmap("consentv2", {
                         ad_Storage: "granted",
                         analytics_Storage: "denied"
                     });
 
-                    (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                    (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                         if (consent) {
                             const cookies = document.cookie;
                             const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -952,7 +952,7 @@ test.describe("consentv2 - Production API", () => {
         // Start with track=true (implicit granted)
         const initialConsent = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: true,
                     upload: false
@@ -960,7 +960,7 @@ test.describe("consentv2 - Production API", () => {
 
                 // Wait a bit for cookies to be set, then check
                 setTimeout(() => {
-                    (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                    (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                         if (consent) {
                             const cookies = document.cookie;
                             const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -988,20 +988,20 @@ test.describe("consentv2 - Production API", () => {
         expect(initialResult.consent.source).toBe(ConsentSource.Implicit);
         expect(initialResult.consent.ad_Storage).toBe(Constant.Granted);
         expect(initialResult.consent.analytics_Storage).toBe(Constant.Granted);
-        // Note: _clsk cookie is only written during upload operations (metadata.save()), not during initial setup
-        // With upload: false in test config, only _clck is written by track() function during initialization
+        // Note: _skhms cookie is only written during upload operations (metadata.save()), not during initial setup
+        // With upload: false in test config, only _skhmu is written by track() function during initialization
         expect(initialResult.hasClckCookie).toBe(true);
         expect(initialResult.clckCookieValue).not.toBe("");
 
         // Explicitly grant via consentv2 API (should maintain granted state)
         const result = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("consentv2", {
+                (window as any).skalplHeatmap("consentv2", {
                     ad_Storage: "granted",
                     analytics_Storage: "granted"
                 });
 
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) {
                         const cookies = document.cookie;
                         const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -1027,8 +1027,8 @@ test.describe("consentv2 - Production API", () => {
         expect(consentResult.consent.source).toBe(ConsentSource.APIv2);
         expect(consentResult.consent.ad_Storage).toBe(Constant.Granted);
         expect(consentResult.consent.analytics_Storage).toBe(Constant.Granted);
-        // Verify _clck cookie remains set (user ID/consent preference cookie)
-        // Note: _clsk is only written during upload operations, so we only check _clck in tests with upload: false
+        // Verify _skhmu cookie remains set (user ID/consent preference cookie)
+        // Note: _skhms is only written during upload operations, so we only check _skhmu in tests with upload: false
         expect(consentResult.hasClckCookie).toBe(true);
         expect(consentResult.clckCookieValue).not.toBe("");
     });
@@ -1063,7 +1063,7 @@ test.describe("consentv2 - Production API", () => {
         // Start with track=false (implicit denied), then grant consent via V1 API
         const result = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: false,
                     upload: false
@@ -1071,9 +1071,9 @@ test.describe("consentv2 - Production API", () => {
 
                 setTimeout(() => {
                     // V1 API: consent(true) grants both ad_Storage and analytics_Storage
-                    (window as any).clarity("consent", true);
+                    (window as any).skalplHeatmap("consent", true);
 
-                    (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                    (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                         if (consent) {
                             const cookies = document.cookie;
                             const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -1129,13 +1129,13 @@ test.describe("consentv2 - Production API", () => {
         // Start with track=true (implicit granted) and verify initial state
         const initialConsent = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: true,
                     upload: false
                 });
 
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) {
                         const cookies = document.cookie;
                         const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -1168,9 +1168,9 @@ test.describe("consentv2 - Production API", () => {
         const result = await page.evaluate(({ sessionKey, cookieKey }) => {
             return new Promise((resolve) => {
                 // V1 API: consent(false) denies both ad_Storage and analytics_Storage
-                (window as any).clarity("consent", false);
+                (window as any).skalplHeatmap("consent", false);
 
-                (window as any).clarity("metadata", (_data: any, _upgrade: any, consent: any) => {
+                (window as any).skalplHeatmap("metadata", (_data: any, _upgrade: any, consent: any) => {
                     if (consent) {
                         const cookies = document.cookie;
                         const clskMatch = cookies.match(new RegExp(`${sessionKey}=([^;]+)`));
@@ -1234,7 +1234,7 @@ test.describe("consentv2 - Production API", () => {
                 const payloadsAfter: string[] = [];
                 let phase = "before";
 
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: opts.track,
                     cookies: ["marketing_id"],
@@ -1258,7 +1258,7 @@ test.describe("consentv2 - Production API", () => {
                         phase = "after";
                         const adStorage = opts.grantConsentAfterStart ? "granted" : "denied";
                         const analyticsStorage = opts.grantConsentAfterStart ? "granted" : "denied";
-                        (window as any).clarity("consentv2", { ad_Storage: adStorage, analytics_Storage: analyticsStorage });
+                        (window as any).skalplHeatmap("consentv2", { ad_Storage: adStorage, analytics_Storage: analyticsStorage });
                     }, consentChangeDelay);
                 }
 
@@ -1329,7 +1329,7 @@ test.describe("consentv2 - Production API", () => {
                 eval(clarityJs);
 
                 // Start Clarity with track=true
-                (window as any).clarity("start", {
+                (window as any).skalplHeatmap("start", {
                     projectId: "test",
                     track: true,
                     upload: false

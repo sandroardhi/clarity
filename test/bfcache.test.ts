@@ -9,7 +9,7 @@ test.describe('BFCache Tests', () => {
         
         // Stop Clarity to simulate pagehide behavior
         await page.evaluate(() => {
-            window.clarity('stop');
+            window.skalplHeatmap('stop');
         });
 
         // Record the current payload count

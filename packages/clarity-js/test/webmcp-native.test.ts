@@ -28,7 +28,7 @@ test("current Chrome queues activation and cancellation through the actual obser
         typeof context.executeTool !== "function") throw new Error("Native WebMCP APIs are unavailable");
     const records: (number | string)[][] = [];
     const stops: (() => void)[] = [];
-    Object.defineProperty(window, "clarity", { value: (command: string, argument: (number | string)[] | ((...args: unknown[]) => void)) => {
+    Object.defineProperty(window, "skalplHeatmap", { value: (command: string, argument: (number | string)[] | ((...args: unknown[]) => void)) => {
       if (command === "time") return Math.round(performance.now());
       if (command === "register" && typeof argument === "function") { stops.push(argument); return undefined; }
       if (command === "measure" && typeof argument === "function") return argument;

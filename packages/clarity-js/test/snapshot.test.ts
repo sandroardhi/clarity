@@ -48,7 +48,7 @@ test.describe("build-specific snapshot responses", () => {
             });
             await page.addScriptTag({ path: join(__dirname, "../build", build.file) });
             await page.evaluate(({ upload, conversions }: { upload: string; conversions: boolean }) => {
-                const clarity: unknown = Reflect.get(window, "clarity");
+                const clarity: unknown = Reflect.get(window, "skalplHeatmap");
                 if (typeof clarity !== "function") { throw new Error("Clarity browser API was not loaded."); }
                 const config: Config = {
                     projectId: "snapshot-test",
@@ -59,7 +59,7 @@ test.describe("build-specific snapshot responses", () => {
                     upload,
                     action: (value: string): void => document.documentElement.setAttribute("data-snapshot-response", value)
                 };
-                clarity("start", config);
+                skalplHeatmap("start", config);
             }, { upload: collect, conversions: build.conversions });
 
             await expect(page.locator("html")).toHaveAttribute("data-snapshot-response", "snapshot-complete");
@@ -69,9 +69,9 @@ test.describe("build-specific snapshot responses", () => {
                 await expect.poll(() => payloads.some(payload => payload.a.some(event => event[1] === clickEvent))).toBe(true);
             }
             await page.evaluate(() => {
-                const clarity: unknown = Reflect.get(window, "clarity");
+                const clarity: unknown = Reflect.get(window, "skalplHeatmap");
                 if (typeof clarity !== "function") { throw new Error("Clarity browser API was not loaded."); }
-                clarity("stop");
+                skalplHeatmap("stop");
             });
             await expect.poll(() => payloads.some(payload => payload.e[9] === 1)).toBe(true);
 

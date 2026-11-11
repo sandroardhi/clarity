@@ -251,8 +251,11 @@ function check(xhr: XMLHttpRequest, sequence: number): void {
         // Attempt send payload again (as configured in settings) if we do not receive a success (2XX) response code back from the server
         if ((xhr.status < 200 || xhr.status > 208) && transitData.attempts <= Setting.RetryLimit) {
             // We re-attempt in all cases except when server explicitly rejects our request with 4XX error
-            if (xhr.status >= 400 && xhr.status < 500) {
-                // Do not kill Clarity instance on 4XX errors; silently drop this sequence and continue tracking
+            if (xhr.status === 413 || xhr.status === 429) {
+                // Payload too large or rate limited: stop recording this page so we do not keep sending
+                limit.trigger(Check.Server);
+            } else if (xhr.status >= 400 && xhr.status < 500) {
+                // Other 4XX errors drop this sequence and keep tracking
                 delete transit[sequence];
             } else {
                 // Browser will send status = 0 when it refuses to put network request over the wire

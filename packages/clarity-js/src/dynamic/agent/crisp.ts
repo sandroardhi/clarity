@@ -25,8 +25,8 @@ export function start(): void {
     window.$crisp.push(["on", "message:received", agent]);
   }
   // Register stop callback with main Clarity
-  if (typeof window !== "undefined" && (window as any).clarity) {
-    (window as any).clarity("register", stop);
+  if (typeof window !== "undefined" && (window as any).skalplHeatmap) {
+    (window as any).skalplHeatmap("register", stop);
   }
 }
 

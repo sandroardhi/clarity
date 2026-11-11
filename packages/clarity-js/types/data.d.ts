@@ -311,7 +311,8 @@ export const enum ApplicationPlatform {
 export const enum Constant {
     Auto = "Auto",
     Config = "Config",
-    Clarity = "clarity",
+    Global = "skalplHeatmap", // Global function name on window
+    EventKey = "skalplHeatmap", // Custom event key for lifecycle events
     Restart = "restart",
     Suspend = "suspend",
     Pause = "pause",
@@ -337,9 +338,9 @@ export const enum Constant {
     String = "string",
     Number = "number",
     Email = "email",
-    CookieKey = "_clck", // Clarity Cookie Key
-    SessionKey = "_clsk", // Clarity Session Key
-    TabKey = "_cltk", // Clarity Tab Key
+    CookieKey = "_skhmu", // User cookie key
+    SessionKey = "_skhms", // Session cookie key
+    TabKey = "_skhmt", // Tab sessionStorage key
     Pipe = "|",
     End = "END",
     Upgrade = "UPGRADE",
@@ -448,7 +449,6 @@ export interface Session {
     ts: number;
     count: number;
     upgrade: BooleanFlag;
-    upload: string;
 }
 
 export interface User {

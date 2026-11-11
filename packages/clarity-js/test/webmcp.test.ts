@@ -31,7 +31,7 @@ async function setup(page: Page, queued: boolean = false): Promise<void> {
         fixture.listeners[type]?.forEach(listener => listener({ type, toolName: name }));
       },
     };
-    Object.defineProperty(window, "clarity", {
+    Object.defineProperty(window, "skalplHeatmap", {
       value(command: string, argument: Token[] | ((...args: unknown[]) => void)):
         number | ((...args: unknown[]) => void) | undefined {
         if (fixture.queued) { return undefined; }

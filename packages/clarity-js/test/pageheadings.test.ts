@@ -8,7 +8,7 @@ const mask = "\u2022";
 const digit = "\u25ab";
 
 type CaptureWindow = typeof window & {
-    clarity: (command: "start" | "stop", config?: Config) => void;
+    skalplHeatmap: (command: "start" | "stop", config?: Config) => void;
     headingQueries: number;
 };
 
@@ -37,14 +37,14 @@ async function collect(
     });
     await page.addScriptTag({ path: join(__dirname, "..", "build", "clarity.min.js") });
     await page.evaluate((settings: { endpoint: string; config: Partial<Config> }): void => {
-        (window as CaptureWindow).clarity("start", {
+        (window as CaptureWindow).skalplHeatmap("start", {
             projectId: "test", track: false, delay: 50, upload: settings.endpoint, ...settings.config,
             action: (value: string): void => document.documentElement.setAttribute("data-headings-response", value)
         });
     }, { endpoint: upload, config });
     await expect(page.locator("html")).toHaveAttribute("data-headings-response", "headings-complete");
     expect(extract([payloads[0]])).toEqual([]);
-    await page.evaluate(() => (window as CaptureWindow).clarity("stop"));
+    await page.evaluate(() => (window as CaptureWindow).skalplHeatmap("stop"));
     await expect.poll(() => payloads.some(payload => JSON.parse(payload).e[9] === 1)).toBe(true);
     await page.unroute(upload, handler);
     page.removeListener("pageerror", onError);

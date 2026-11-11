@@ -4,7 +4,7 @@ import { clarity, version, helper } from "clarity-js";
 (function(): void {
     if (typeof window !== "undefined") {
         const w = window as any;
-        const c = 'clarity';
+        const c = 'skalplHeatmap';
         let isStarted = false;
 
         // Stop any existing instance of clarity-js

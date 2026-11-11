@@ -24,6 +24,6 @@ export function usage(
 }
 
 export function encode(...record: WebMcpRecord): void {
-  const t = (window as any).clarity("time");
-  (window as any).clarity("queue", [t, Event.WebMcp, ...record]);
+  const t = (window as any).skalplHeatmap("time");
+  (window as any).skalplHeatmap("queue", [t, Event.WebMcp, ...record]);
 }

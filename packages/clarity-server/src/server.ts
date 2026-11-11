@@ -614,7 +614,7 @@ export function createServer(options: ServerOptions = {}): Express {
   <!-- 1. Tracking SDK (Clarity Engine) -->
   <script src="/tracker.js"></script>
   <script>
-    window.clarity("start", {
+    window.skalplHeatmap("start", {
       projectId: "demo_local",
       upload: "/api/v1/collect",
       delay: 500 // Flush clicks every 500ms
@@ -717,7 +717,7 @@ export function createServer(options: ServerOptions = {}): Express {
     const currentUrl = window.location.origin + window.location.pathname;
 
     function getVisualizer() {
-      return window.clarityVisualize || (window.clarity && window.clarity.visualize);
+      return window.clarityVisualize || (window.skalplHeatmap && window.skalplHeatmap.visualize);
     }
 
     // Global Click Listener: Catat klik DI MANA SAJA (teks, kartu, background, tombol)

@@ -68,7 +68,7 @@ export function config(override: Config): boolean {
 // not holding the session during inactive time periods.
 export function suspend(): void {
     if (status) {
-        custom.event(Constant.Clarity, Constant.Suspend);
+        custom.event(Constant.EventKey, Constant.Suspend);
         clarity.stop();
         ["mousemove", "touchstart"].forEach(x => event.bind(document, x, restart));
         ["resize", "scroll", "pageshow"].forEach(x => event.bind(window, x, restart));
@@ -77,5 +77,5 @@ export function suspend(): void {
 
 function restart(): void {
     clarity.start();
-    custom.event(Constant.Clarity, Constant.Restart);
+    custom.event(Constant.EventKey, Constant.Restart);
 }

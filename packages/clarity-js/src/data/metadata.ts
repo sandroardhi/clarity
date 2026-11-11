@@ -33,9 +33,8 @@ export function start(): void {
   let projectId = config.projectId || hash(location.host);
   data = { projectId, userId: u.id, sessionId: s.session, pageNum: s.count };
 
-  // Override configuration based on what's in the session storage, unless it is blank (e.g. using upload callback, like in devtools)
+  // Override lean mode based on the session cookie. The upload URL always comes from config, never from a cookie.
   config.lean = config.track && s.upgrade !== null ? s.upgrade === BooleanFlag.False : config.lean;
-  config.upload = config.track && typeof config.upload === Constant.String && s.upload && s.upload.length > Constant.HTTPS.length ? s.upload : config.upload;
 
   // Log page metadata as dimensions
   dimension.log(Dimension.UserAgent, ua);
@@ -261,9 +260,8 @@ export function callback(consentUpdate: boolean = false): void {
 export function save(): void {
   if (!data || !config.track) return;
   let ts = Math.round(Date.now());
-  let upload = config.upload && typeof config.upload === Constant.String ? (config.upload as string) : Constant.Empty;
   let upgrade = config.lean ? BooleanFlag.False : BooleanFlag.True;
-  setCookie(Constant.SessionKey, [data.sessionId, ts, data.pageNum, upgrade, upload].join(COOKIE_SEP), Setting.SessionExpire);
+  setCookie(Constant.SessionKey, [data.sessionId, ts, data.pageNum, upgrade].join(COOKIE_SEP), Setting.SessionExpire);
 }
 
 function processCallback(upgrade: BooleanFlag, consentUpdate: boolean = false): void {
@@ -311,27 +309,15 @@ export function shortid(): string {
 }
 
 function session(): Session {
-  let output: Session = { session: shortid(), ts: Math.round(Date.now()), count: 1, upgrade: null, upload: Constant.Empty };
+  let output: Session = { session: shortid(), ts: Math.round(Date.now()), count: 1, upgrade: null };
   let value = getCookie(Constant.SessionKey, !config.includeSubdomains);
   if (value) {
     // Maintaining support for pipe separator for backward compatibility, this can be removed in future releases
     let parts = value.includes(Constant.Caret) ? value.split(Constant.Caret) : value.split(Constant.Pipe);
-    // Making it backward & forward compatible by using greater than comparison (v0.6.21)
-    // In future version, we can reduce the parts length to be 5 where the last part contains the full upload URL
-    if (parts.length >= 5 && output.ts - num(parts[1]) < Setting.SessionTimeout) {
+    if (parts.length >= 4 && output.ts - num(parts[1]) < Setting.SessionTimeout) {
       output.session = parts[0];
       output.count = num(parts[2]) + 1;
       output.upgrade = num(parts[3]);
-      let rawUpload = parts.length >= 6 ? parts[5] + "/" + parts[4] : parts[4];
-      if (rawUpload) {
-        // Repair a doubled scheme written by older builds (e.g. https://http://, https://http//); keep the inner scheme
-        rawUpload = rawUpload.replace(/^https?:\/\/(https?):?\/\//i, "$1://");
-        if (rawUpload.indexOf("http://") === 0 || rawUpload.indexOf("https://") === 0 || rawUpload[0] === "/") {
-          output.upload = rawUpload;
-        } else {
-          output.upload = Constant.HTTPS + rawUpload;
-        }
-      }
     }
   }
   return output;
