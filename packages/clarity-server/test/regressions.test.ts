@@ -1,46 +1,10 @@
 import { expect, test } from "@playwright/test";
-import http from "http";
 import { IAnalyticsRepository, MemoryAnalyticsRepository } from "../src/db/repository";
 import { PgAnalyticsRepository } from "../src/db/postgres";
 import { createServer } from "../src/server";
-import { AUTH, JSON_AUTH, SECRET } from "./helper";
+import { canonicalPageKey } from "../src/services/pageKey";
+import { AUTH, collect, discover, click, JSON_AUTH, ORIGIN, payload, register, SECRET, syncProject, Token, uid, withServer } from "./helper";
 import { DEFAULT_RETENTION_DAYS, pruneRawData, retentionDays } from "../src/services/retention";
-
-type Token = (string | number | null | object)[];
-
-function payload(projectId: string, url: string, sequence: number, events: Token[], sessionId: string = "s1"): string {
-  return JSON.stringify({ e: ["0.8.76", sequence, 1000, 500, projectId, "u1", sessionId, 1, 0, 0, 0, url], a: events });
-}
-
-const click: Token = [200, 9, 10, 500, 300, 16383, 16383, 0, 1, 0, "Buy", null, "h1.h1b", 1, null, 120, 40, "BUTTON", "buy", "btn"];
-const discover: Token = [100, 5, 1, 0, "HTML", {}];
-
-async function withServer(repository: IAnalyticsRepository, fn: (base: string) => Promise<void>): Promise<void> {
-  const server = http.createServer(createServer({ repository, internalSecret: SECRET }));
-  await new Promise<void>((resolve) => server.listen(0, resolve));
-  try {
-    await fn(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
-  } finally {
-    server.close();
-  }
-}
-
-const ORIGIN = "https://site.example.com";
-
-async function register(base: string, id: string): Promise<void> {
-  expect((await syncProject(base, { id, name: id, allowedDomains: ["site.example.com"] })).status).toBe(201);
-}
-
-async function collect(base: string, body: string, origin?: string): Promise<void> {
-  const headers: Record<string, string> = { "Content-Type": "text/plain" };
-  if (origin) headers.Origin = origin;
-  const res = await fetch(`${base}/api/v1/collect`, { method: "POST", headers, body });
-  expect(res.status).toBe(204);
-}
-
-async function syncProject(base: string, body: object): Promise<Response> {
-  return fetch(`${base}/api/v1/projects`, { method: "POST", headers: JSON_AUTH, body: JSON.stringify(body) });
-}
 
 async function clickTotal(base: string, projectId: string, url: string): Promise<number> {
   const res = await fetch(`${base}/api/v1/heatmaps/click?projectId=${projectId}&pageUrl=${encodeURIComponent(url)}`, { headers: AUTH });
@@ -60,7 +24,7 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
 
     test("unknown project ids are dropped, not created", async () => {
       const repo = makeRepo();
-      const id = `unknown_${Date.now()}`;
+      const id = `unknown_${uid()}`;
       await withServer(repo, async (base) => {
         await collect(base, payload(id, "https://x.example.com/", 1, [click]), "https://x.example.com");
         expect(await repo.getProject(id)).toBeNull();
@@ -69,7 +33,7 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
 
     test("POST and PUT upsert a project and the collector honors domains and isActive", async () => {
       const repo = makeRepo();
-      const id = `sync_${Date.now()}`;
+      const id = `sync_${uid()}`;
       const url = "https://shop.example.com/p";
       await withServer(repo, async (base) => {
         expect((await syncProject(base, { id, name: "Shop", allowedDomains: ["old.example.com"] })).status).toBe(201);
@@ -116,39 +80,40 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
 
     test("snapshot is saved from Discover only and survives long URLs", async () => {
       const repo = makeRepo();
-      const id = `snap_${Date.now()}`;
+      const id = `snap_${uid()}`;
       const url = `https://snap.example.com/${"a".repeat(200)}`;
+      const key = canonicalPageKey(url) as string;
       await withServer(repo, async (base) => {
         await register(base, id);
         await collect(base, payload(id, url, 1, [click]), ORIGIN);
-        expect(await repo.getPageSnapshot(id, url, "desktop")).toBeNull();
+        expect(await repo.getPageSnapshot(id, key, "desktop")).toBeNull();
 
         const withDom = payload(id, url, 2, [discover]);
         await collect(base, withDom, ORIGIN);
-        expect((await repo.getPageSnapshot(id, url, "desktop"))?.rawPayload).toBe(withDom);
+        expect((await repo.getPageSnapshot(id, key, "desktop"))?.rawPayload).toBe(withDom);
 
         await collect(base, payload(id, url, 1, [click], "s2"), ORIGIN);
-        expect((await repo.getPageSnapshot(id, url, "desktop"))?.rawPayload).toBe(withDom);
+        expect((await repo.getPageSnapshot(id, key, "desktop"))?.rawPayload).toBe(withDom);
 
         await collect(base, payload(id, url, 1, [discover], "s3"), ORIGIN);
-        expect((await repo.getPageSnapshot(id, url, "desktop"))?.rawPayload).toBe(withDom);
+        expect((await repo.getPageSnapshot(id, key, "desktop"))?.rawPayload).toBe(withDom);
 
         const changed = payload(id, url, 1, [[100, 5, 1, 0, "BODY", {}]], "s4");
         await collect(base, changed, ORIGIN);
-        expect((await repo.getPageSnapshot(id, url, "desktop"))?.rawPayload).toBe(changed);
+        expect((await repo.getPageSnapshot(id, key, "desktop"))?.rawPayload).toBe(changed);
       });
     });
 
     test("retention deletes raw clicks and scrolls older than the cutoff", async () => {
       const repo = makeRepo();
-      const id = `ret_${Date.now()}`;
-      const url = "https://ret.example.com/";
+      const id = `ret_${uid()}`;
+      const url = "ret.example.com/";
       const now = Date.now();
       const old = now - (DEFAULT_RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000;
-      await repo.upsertProject({ id, name: id, allowedDomains: [], isActive: true, createdAt: now });
-      const row = { projectId: id, pageUrl: url, device: "desktop" as const, hash: "h", selector: "a", eX: 1, eY: 1 };
+      await repo.upsertProject({ id, name: id, allowedDomains: [], excludePatterns: [], isActive: true, version: null, createdAt: now });
+      const row = { projectId: id, pageUrl: url, device: "desktop" as const, hash: "h", selector: "a", eX: 1, eY: 1, clientTime: null };
       await repo.saveRawClicks([{ ...row, id: `${id}-old`, timestamp: old }, { ...row, id: `${id}-new`, timestamp: now }]);
-      const scroll = { projectId: id, pageUrl: url, device: "desktop" as const, maxScrollReachY: 50 };
+      const scroll = { projectId: id, pageUrl: url, device: "desktop" as const, maxScrollReachY: 50, viewportHeight: null, clientTime: null };
       await repo.saveRawScroll({ ...scroll, id: `${id}-s-old`, sessionId: "a", timestamp: old });
       await repo.saveRawScroll({ ...scroll, id: `${id}-s-new`, sessionId: "b", timestamp: now });
 
@@ -162,7 +127,7 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
     });
 
     test("scroll reach is a percent of page height and counts non-scrollers", async () => {
-      const id = `scroll_${Date.now()}`;
+      const id = `scroll_${uid()}`;
       const url = "https://scroll.example.com/";
       await withServer(makeRepo(), async (base) => {
         await register(base, id);

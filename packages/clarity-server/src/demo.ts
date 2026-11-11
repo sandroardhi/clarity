@@ -1,5 +1,6 @@
 import { Express, Request, Response } from "express";
 import { IAnalyticsRepository } from "./db/repository";
+import { canonicalPageKey } from "./services/pageKey";
 import { RawClickRecord } from "./types";
 
 // Local playground at /demo. Disabled in production. Reads go through /api/v1/demo/heatmaps, which need no secret
@@ -87,6 +88,7 @@ export function registerDemo(app: Express, repository: IAnalyticsRepository): vo
           device: "desktop",
           sessionId: `mock-session-${sessionIdx}`,
           maxScrollReachY: group.maxReach,
+          viewportHeight: 800,
           timestamp: now - sessionIdx * 45000,
           clientTime: null
         });
@@ -106,7 +108,7 @@ export function registerDemo(app: Express, repository: IAnalyticsRepository): vo
       res.status(403).json({ error: "Only 'demo_local' project data can be manipulated via demo endpoints" });
       return;
     }
-    const pageUrl = String(req.query.pageUrl || req.body?.pageUrl || "http://localhost:3000/demo");
+    const pageUrl = canonicalPageKey(String(req.query.pageUrl || req.body?.pageUrl || "http://localhost:3000/demo")) || "localhost:3000/demo";
     const result = await seedDemoData(repository, projectId, pageUrl);
     res.status(200).json({ success: true, ...result });
   });
@@ -121,7 +123,7 @@ export function registerDemo(app: Express, repository: IAnalyticsRepository): vo
       res.status(403).json({ error: "Only 'demo_local' project data can be manipulated via demo endpoints" });
       return;
     }
-    const pageUrl = String(req.query.pageUrl || req.body?.pageUrl || "http://localhost:3000/demo");
+    const pageUrl = canonicalPageKey(String(req.query.pageUrl || req.body?.pageUrl || "http://localhost:3000/demo")) || "localhost:3000/demo";
     await repository.clearProjectData(projectId, pageUrl);
     res.status(200).json({ success: true, message: "Cleared all telemetry data for demo" });
   });
@@ -131,7 +133,7 @@ export function registerDemo(app: Express, repository: IAnalyticsRepository): vo
       res.status(403).json({ error: "Demo endpoints are disabled in production environment" });
       return;
     }
-    const pageUrl = String(req.query.pageUrl || "http://localhost:3000/demo");
+    const pageUrl = canonicalPageKey(String(req.query.pageUrl || "http://localhost:3000/demo")) || "localhost:3000/demo";
     const query = { projectId: "demo_local", pageUrl };
     if (req.params.kind === "click") {
       const activity = await repository.getClickActivity(query);
@@ -156,7 +158,9 @@ export function registerDemo(app: Express, repository: IAnalyticsRepository): vo
         id: "demo_local",
         name: "Local Manual Test Playground",
         allowedDomains: ["*"],
+        excludePatterns: [],
         isActive: true,
+        version: null,
         createdAt: Date.now()
       });
     }

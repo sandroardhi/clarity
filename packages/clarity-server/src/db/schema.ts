@@ -52,6 +52,31 @@ CREATE TABLE IF NOT EXISTS page_snapshots (
 ALTER TABLE raw_clicks ADD COLUMN IF NOT EXISTS client_time BIGINT;
 ALTER TABLE raw_scrolls ADD COLUMN IF NOT EXISTS client_time BIGINT;
 
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS exclude_patterns TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS version BIGINT;
+ALTER TABLE raw_scrolls ADD COLUMN IF NOT EXISTS viewport_height INT;
+
+CREATE TABLE IF NOT EXISTS page_index (
+    project_id VARCHAR(100) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    page_key TEXT NOT NULL,
+    device VARCHAR(20) NOT NULL,
+    last_url TEXT NOT NULL,
+    first_seen BIGINT NOT NULL,
+    last_seen BIGINT NOT NULL,
+    views BIGINT NOT NULL DEFAULT 0,
+    clicks BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (project_id, page_key, device)
+);
+
+-- project_id '' holds drops not tied to a project; no foreign key so unknown ids can be counted
+CREATE TABLE IF NOT EXISTS ingest_drops (
+    project_id VARCHAR(100) NOT NULL,
+    reason VARCHAR(20) NOT NULL,
+    count BIGINT NOT NULL,
+    last_at BIGINT NOT NULL,
+    PRIMARY KEY (project_id, reason)
+);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
     name VARCHAR(100) PRIMARY KEY,
     applied_at BIGINT NOT NULL

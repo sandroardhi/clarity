@@ -10,14 +10,12 @@ export interface Project {
   id: string; // e.g. "skalpl_tenant_site_123"
   name: string;
   allowedDomains: string[]; // e.g. ["example.com", "www.example.com"]
+  // Globs matched against the page key at collect time; a match drops the beacon
+  excludePatterns: string[];
   isActive: boolean;
+  // Unix ms of the backend change behind the last sync; a lower version is rejected as stale
+  version: number | null;
   createdAt: number;
-}
-
-export interface CreateProjectInput {
-  id: string;
-  name: string;
-  allowedDomains: string[];
 }
 
 export type DeviceType = "desktop" | "mobile" | "tablet";
@@ -29,6 +27,7 @@ export type DeviceType = "desktop" | "mobile" | "tablet";
 export interface RawClickRecord {
   id: string;
   projectId: string;
+  // Canonical page key (see services/pageKey.ts)
   pageUrl: string;
   device: DeviceType;
   hash: string;
@@ -60,6 +59,8 @@ export interface RawScrollRecord {
   device: DeviceType;
   sessionId: string;
   maxScrollReachY: number; // 0..100 (%)
+  // Viewport height in CSS px; null when the payload has none
+  viewportHeight: number | null;
   timestamp: number;
   clientTime: number | null;
 }
@@ -121,8 +122,8 @@ export interface HeatmapQuery {
 
 export interface HeatmapClickResponse {
   projectId: string;
-  pageUrl: string;
-  device: DeviceType;
+  pageKey: string;
+  device: DeviceType | null;
   from: number | null;
   to: number | null;
   totalClicks: number;
@@ -131,18 +132,19 @@ export interface HeatmapClickResponse {
 
 export interface HeatmapScrollResponse {
   projectId: string;
-  pageUrl: string;
-  device: DeviceType;
+  pageKey: string;
+  device: DeviceType | null;
   from: number | null;
   to: number | null;
   totalSessions: number;
   scrollMap: ScrollMapInfo[];
-  averageFoldY: number;
+  // Mean viewport height in px; null when there are no sessions
+  averageFoldY: number | null;
 }
 
 export interface PageSnapshotResponse {
   projectId: string;
-  pageUrl: string;
+  pageKey: string;
   device: DeviceType;
   domHash: string;
   payload: string;
@@ -154,5 +156,41 @@ export interface IngestionResult {
   clicksCount: number;
   scrollRecorded: boolean;
   snapshotSaved: boolean;
+  dropped?: DropReason;
+}
+
+export type DropReason = "unknown" | "inactive" | "origin" | "excluded" | "invalid" | "gunzip" | "rate_limited";
+
+export interface DropEntry {
+  projectId: string;
+  reason: DropReason;
+  count: number;
+  lastAt: number;
+}
+
+export type DropCounts = Partial<Record<DropReason, { count: number; lastAt: number }>>;
+
+// One row per project, page key and device; every accepted beacon updates it
+export interface PageIndexRow {
+  projectId: string;
+  pageKey: string;
+  device: DeviceType;
+  // Last real URL seen (origin + path), for display
+  lastUrl: string;
+  firstSeen: number;
+  lastSeen: number;
+  views: number;
+  clicks: number;
+}
+
+export interface TrackedPage {
+  pageKey: string;
+  pageUrl: string;
+  firstSeen: number;
+  lastSeen: number;
+  views: number;
+  clicks: number;
+  excluded: boolean;
+  devices: Partial<Record<DeviceType, { views: number; clicks: number; lastSeen: number }>>;
 }
 

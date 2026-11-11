@@ -1,203 +1,113 @@
-import { test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { PgAnalyticsRepository } from "../src/db/postgres";
-import { Activity, DeviceType, HeatmapQuery, PageSnapshot, Project, RawClickRecord, RawScrollRecord } from "../src/types";
+import { RawClickRecord } from "../src/types";
+import { uid } from "./helper";
 
-function assert(condition: boolean, message: string): void {
-  if (!condition) {
-    throw new Error(`[AssertionFailed]: ${message}`);
-  }
-}
+test.describe("postgres repository", () => {
+  test.skip(!process.env.DATABASE_URL, "DATABASE_URL is not set");
 
-async function runPostgresTests() {
-  console.log("=== Running PostgreSQL Real Database Integration Tests ===");
+  let repo: PgAnalyticsRepository;
+  test.beforeAll(async () => {
+    repo = new PgAnalyticsRepository(process.env.DATABASE_URL as string);
+    await repo.migrate();
+  });
+  test.afterAll(async () => {
+    await repo.close();
+  });
 
-  const repo = new PgAnalyticsRepository(process.env.DATABASE_URL as string);
+  test("stores and aggregates telemetry", async () => {
+    const id = `test_proj_${uid()}`;
+    const key = "myskalplstore.com/checkout";
+    const now = Date.now();
+    await repo.createProject({
+      id, name: "Store", allowedDomains: ["myskalplstore.com"], excludePatterns: ["myskalplstore.com/admin*"],
+      isActive: true, version: 5, createdAt: now
+    });
+    expect(await repo.getProject(id)).toMatchObject({ allowedDomains: ["myskalplstore.com"], excludePatterns: ["myskalplstore.com/admin*"], version: 5 });
 
-  try {
-    // 1. Initialize Schema
-    console.log("1. Initializing schema in PostgreSQL...");
+    const click = (n: number, eX: number, device: "desktop" | "mobile" = "desktop"): RawClickRecord => ({
+      id: `${id}-c${n}`, projectId: id, pageUrl: key, device, hash: device === "desktop" ? "btn" : "nav", selector: "button",
+      eX, eY: 16000, timestamp: now + n, clientTime: null
+    });
+    await repo.saveRawClicks([click(1, 16000), click(2, 16000), click(3, 16000), click(4, 18000), click(5, 5000, "mobile")]);
+
+    const desktop = await repo.getClickActivity({ projectId: id, pageUrl: key, device: "desktop" });
+    expect(desktop).toHaveLength(1);
+    expect(desktop[0]).toMatchObject({ hash: "btn", totalclicks: 4, points: 2 });
+    const all = await repo.getClickActivity({ projectId: id, pageUrl: key });
+    expect(all.reduce((sum, a) => sum + a.totalclicks, 0)).toBe(5);
+
+    const scroll = { projectId: id, pageUrl: key, device: "desktop" as const, timestamp: now, clientTime: null };
+    await repo.saveRawScroll({ ...scroll, id: `${id}-s1`, sessionId: "a", maxScrollReachY: 100, viewportHeight: 900 });
+    await repo.saveRawScroll({ ...scroll, id: `${id}-s2`, sessionId: "b", maxScrollReachY: 50, viewportHeight: 700 });
+    await repo.saveRawScroll({ ...scroll, id: `${id}-s2`, sessionId: "b", maxScrollReachY: 40, viewportHeight: null });
+    const map = await repo.getScrollMap({ projectId: id, pageUrl: key, device: "desktop" });
+    expect(map.totalSessions).toBe(2);
+    expect(map.avgFoldY).toBe(800);
+    expect(map.scrollMap.map((m) => m.percUsers)).toEqual([100, 100, 100, 50, 50]);
+    expect(await repo.getViewDevice(`${id}-s1`)).toBe("desktop");
+    expect(await repo.getScrollMap({ projectId: id, pageUrl: "myskalplstore.com/none" })).toEqual({ scrollMap: [], totalSessions: 0, avgFoldY: null });
+
+    const snap = { projectId: id, pageUrl: key, domHash: "d1", rawPayload: "{}" };
+    await repo.savePageSnapshot({ ...snap, id: `${id}:a`, device: "desktop", timestamp: now });
+    await repo.savePageSnapshot({ ...snap, id: `${id}:b`, device: "mobile", timestamp: now + 10 });
+    expect((await repo.getPageSnapshot(id, key, "desktop"))?.device).toBe("desktop");
+    expect((await repo.getPageSnapshot(id, key))?.device).toBe("mobile");
+  });
+
+  test("upsert rejects a lower version and keeps the stored one when none is sent", async () => {
+    const id = `ver_${uid()}`;
+    const base = { id, name: "V", allowedDomains: [], excludePatterns: [], isActive: true, createdAt: Date.now() };
+    expect(await repo.upsertProject({ ...base, version: 200 })).toBe("created");
+    expect(await repo.upsertProject({ ...base, name: "Old", version: 100 })).toBe("stale");
+    expect((await repo.getProject(id))?.name).toBe("V");
+    expect(await repo.upsertProject({ ...base, name: "Same", version: 200 })).toBe("updated");
+    expect(await repo.upsertProject({ ...base, name: "None", version: null })).toBe("updated");
+    expect(await repo.getProject(id)).toMatchObject({ name: "None", version: 200 });
+  });
+
+  test("page index and drop counters accumulate", async () => {
+    const id = `idx_${uid()}`;
+    await repo.createProject({ id, name: id, allowedDomains: [], excludePatterns: [], isActive: true, version: null, createdAt: Date.now() });
+    const a = { projectId: id, pageKey: "x.com/", device: "mobile" as const };
+    await repo.recordPageActivity({ ...a, url: "https://www.x.com/", at: 1000, views: 1, clicks: 0 });
+    await repo.recordPageActivity({ ...a, url: "https://x.com/", at: 2000, views: 0, clicks: 3 });
+    expect(await repo.listPageIndex(id)).toEqual([
+      { ...a, lastUrl: "https://x.com/", firstSeen: 1000, lastSeen: 2000, views: 1, clicks: 3 }
+    ]);
+
+    await repo.addDrops([{ projectId: id, reason: "origin", count: 2, lastAt: 10 }]);
+    await repo.addDrops([{ projectId: id, reason: "origin", count: 1, lastAt: 20 }, { projectId: id, reason: "excluded", count: 1, lastAt: 5 }]);
+    expect((await repo.getDrops(id))[id]).toEqual({ origin: { count: 3, lastAt: 20 }, excluded: { count: 1, lastAt: 5 } });
+    await repo.ping();
+  });
+
+  test("migration 002 canonicalizes old page URLs and 003 backfills the page index", async () => {
+    const id = `mig_${uid()}`;
+    const pool = repo.getPool();
+    await repo.createProject({ id, name: id, allowedDomains: [], excludePatterns: [], isActive: true, version: null, createdAt: 0 });
+    const insertClick = "INSERT INTO raw_clicks (id, project_id, page_url, device, hash, selector, e_x, e_y, timestamp) VALUES ($1, $2, $3, 'desktop', 'h', 'a', 1, 1, $4)";
+    await pool.query(insertClick, [`${id}-c1`, id, "https://www.Shop.example.com/a/", 1000]);
+    await pool.query(insertClick, [`${id}-c2`, id, "https://shop.example.com/a", 3000]);
+    await pool.query(
+      "INSERT INTO raw_scrolls (id, project_id, page_url, device, session_id, max_scroll_reach_y, timestamp) VALUES ($1, $2, $3, 'desktop', 's', 50, 2000)",
+      [`${id}-s1`, id, "https://shop.example.com/a/"]
+    );
+    const insertSnap = "INSERT INTO page_snapshots (id, project_id, page_url, device, dom_hash, raw_payload, timestamp) VALUES ($1, $2, $3, 'desktop', $4, '{}', $5)";
+    await pool.query(insertSnap, [`${id}:old`, id, "https://www.shop.example.com/a", "older", 1000]);
+    await pool.query(insertSnap, [`${id}:new`, id, "https://shop.example.com/a/", "newer", 2000]);
+
+    await pool.query("DELETE FROM schema_migrations WHERE name IN ('002_canonical_page_keys', '003_backfill_page_index')");
+    await pool.query("DELETE FROM page_index WHERE project_id = $1", [id]);
     await repo.migrate();
 
-    const testProjectId = `test_proj_${Date.now()}`;
-    const testPageUrl = "https://myskalplstore.com/checkout";
-
-    // 2. Create Project
-    console.log("2. Testing Project creation...");
-    const project: Project = {
-      id: testProjectId,
-      name: "Skalpl Production Store",
-      allowedDomains: ["myskalplstore.com", "app.myskalplstore.com"],
-      isActive: true,
-      createdAt: Date.now()
-    };
-    await repo.createProject(project);
-
-    const fetchedProject = await repo.getProject(testProjectId);
-    assert(fetchedProject !== null, "Project should exist in PostgreSQL");
-    assert(fetchedProject?.id === testProjectId, "Project ID should match");
-    assert(fetchedProject?.name === "Skalpl Production Store", "Project name should match");
-    assert(fetchedProject?.allowedDomains.includes("myskalplstore.com") === true, "Allowed domains should match");
-    console.log("   -> Project successfully stored and retrieved from PostgreSQL.");
-
-    // 3. Insert Raw Clicks
-    console.log("3. Testing batch Raw Clicks insertion in PostgreSQL...");
-    const now = Date.now();
-    const rawClicks: RawClickRecord[] = [
-      // 3 clicks at coordinate (16000, 16000) on CTA button
-      {
-        id: `click_1_${now}`,
-        projectId: testProjectId,
-        pageUrl: testPageUrl,
-        device: "desktop" as DeviceType,
-        hash: "hash_checkout_btn",
-        selector: "button.btn-primary#checkout",
-        eX: 16000,
-        eY: 16000,
-        timestamp: now
-      },
-      {
-        id: `click_2_${now}`,
-        projectId: testProjectId,
-        pageUrl: testPageUrl,
-        device: "desktop" as DeviceType,
-        hash: "hash_checkout_btn",
-        selector: "button.btn-primary#checkout",
-        eX: 16000,
-        eY: 16000,
-        timestamp: now + 10
-      },
-      {
-        id: `click_3_${now}`,
-        projectId: testProjectId,
-        pageUrl: testPageUrl,
-        device: "desktop" as DeviceType,
-        hash: "hash_checkout_btn",
-        selector: "button.btn-primary#checkout",
-        eX: 16000,
-        eY: 16000,
-        timestamp: now + 20
-      },
-      // 1 click at coordinate (18000, 17000) on the same CTA button
-      {
-        id: `click_4_${now}`,
-        projectId: testProjectId,
-        pageUrl: testPageUrl,
-        device: "desktop" as DeviceType,
-        hash: "hash_checkout_btn",
-        selector: "button.btn-primary#checkout",
-        eX: 18000,
-        eY: 17000,
-        timestamp: now + 30
-      },
-      // 1 click on a mobile device to test device filtering
-      {
-        id: `click_5_mobile_${now}`,
-        projectId: testProjectId,
-        pageUrl: testPageUrl,
-        device: "mobile" as DeviceType,
-        hash: "hash_mobile_nav",
-        selector: "nav.mobile-menu",
-        eX: 5000,
-        eY: 5000,
-        timestamp: now
-      }
-    ];
-
-    await repo.saveRawClicks(rawClicks);
-    console.log("   -> Inserted", rawClicks.length, "clicks into raw_clicks table.");
-
-    // 4. Query Click Heatmap (Desktop)
-    console.log("4. Testing SQL GROUP BY Heatmap aggregation in PostgreSQL...");
-    const desktopQuery: HeatmapQuery = {
-      projectId: testProjectId,
-      pageUrl: testPageUrl,
-      device: "desktop"
-    };
-
-    const activity: Activity = await repo.getClickActivity(desktopQuery);
-    assert(activity.length === 1, "There should be exactly 1 aggregated element on desktop");
-    const checkoutBtn = activity[0];
-    assert(checkoutBtn.hash === "hash_checkout_btn", "Element hash should match");
-    assert(checkoutBtn.totalclicks === 4, "Total clicks on checkout button should be 4");
-    assert(checkoutBtn.points === 2, "There should be 2 distinct coordinate clusters");
-
-    // Check grouping of coordinate (16000, 16000)
-    const coordIdx = checkoutBtn.x.findIndex((x, idx) => x === 16000 && checkoutBtn.y[idx] === 16000);
-    assert(coordIdx !== -1, "Coordinate (16000, 16000) must exist");
-    assert(checkoutBtn.clicks[coordIdx] === 3, "Coordinate (16000, 16000) must have 3 grouped clicks");
-    console.log("   -> SQL GROUP BY verified: 4 total clicks aggregated into 2 distinct coordinate points.");
-
-    // 5. Test Scroll Tracking & Distribution
-    console.log("5. Testing Scroll Distribution in PostgreSQL...");
-    const scrolls: RawScrollRecord[] = [
-      {
-        id: `scroll_sess_1_${now}`,
-        projectId: testProjectId,
-        pageUrl: testPageUrl,
-        device: "desktop",
-        sessionId: "sess_user_1",
-        maxScrollReachY: 100, // Reached footer
-        timestamp: now
-      },
-      {
-        id: `scroll_sess_2_${now}`,
-        projectId: testProjectId,
-        pageUrl: testPageUrl,
-        device: "desktop",
-        sessionId: "sess_user_2",
-        maxScrollReachY: 50, // Reached 50%
-        timestamp: now
-      }
-    ];
-
-    for (const s of scrolls) {
-      await repo.saveRawScroll(s);
-    }
-
-    const scrollRes = await repo.getScrollMap(desktopQuery);
-    assert(scrollRes.totalSessions === 2, "Total sessions should be 2");
-    const m0 = scrollRes.scrollMap.find((m) => m.scrollReachY === 0);
-    const m50 = scrollRes.scrollMap.find((m) => m.scrollReachY === 50);
-    const m100 = scrollRes.scrollMap.find((m) => m.scrollReachY === 100);
-
-    assert(m0?.percUsers === 100, "100% of sessions reached 0%");
-    assert(m50?.percUsers === 100, "100% of sessions reached 50%");
-    assert(m100?.percUsers === 50, "50% of sessions reached 100%");
-    console.log("   -> Scroll reach distribution verified: 0% = 100%, 50% = 100%, 100% = 50%.");
-
-    // 6. Test Page Snapshot (Upsert)
-    console.log("6. Testing Page Snapshot in PostgreSQL...");
-    const snapshot: PageSnapshot = {
-      id: `${testProjectId}:snap_1`,
-      projectId: testProjectId,
-      pageUrl: testPageUrl,
-      device: "desktop",
-      domHash: "dom_v1_abc",
-      rawPayload: '{"e":["0.8.76",1],"a":[[100,5,1,0,"HTML",{}]]}',
-      timestamp: now
-    };
-    await repo.savePageSnapshot(snapshot);
-
-    const retrievedSnapshot = await repo.getPageSnapshot(testProjectId, testPageUrl, "desktop");
-    assert(retrievedSnapshot !== null, "Page snapshot should be retrieved");
-    assert(retrievedSnapshot?.domHash === "dom_v1_abc", "DOM Hash should match");
-    console.log("   -> Page snapshot stored and retrieved successfully.");
-
-    // 7. Test Tracked Pages List
-    console.log("7. Testing Tracked Pages Listing...");
-    const pages = await repo.listTrackedPages(testProjectId);
-    assert(pages.length === 1, "Should list 1 tracked page");
-    assert(pages[0].pageUrl === testPageUrl, "Tracked page URL should match");
-    assert(pages[0].totalClicks === 5, "Total clicks across all devices should be 5");
-    console.log("   -> Tracked pages verified:", pages[0].pageUrl, "clicks:", pages[0].totalClicks);
-
-    console.log("\n>>> POSTGRESQL DATABASE TESTS PASSED 100% WITH ZERO ERRORS! <<<");
-  } finally {
-    await repo.close();
-  }
-}
-
-test("postgres repository stores and aggregates telemetry", async () => {
-  test.skip(!process.env.DATABASE_URL, "DATABASE_URL is not set");
-  await runPostgresTests();
+    const clicks = await pool.query("SELECT DISTINCT page_url FROM raw_clicks WHERE project_id = $1", [id]);
+    expect(clicks.rows).toEqual([{ page_url: "shop.example.com/a" }]);
+    const snaps = await pool.query("SELECT page_url, dom_hash FROM page_snapshots WHERE project_id = $1", [id]);
+    expect(snaps.rows).toEqual([{ page_url: "shop.example.com/a", dom_hash: "newer" }]);
+    expect(await repo.listPageIndex(id)).toEqual([{
+      projectId: id, pageKey: "shop.example.com/a", device: "desktop", lastUrl: "https://shop.example.com/a",
+      firstSeen: 1000, lastSeen: 3000, views: 1, clicks: 2
+    }]);
+  });
 });

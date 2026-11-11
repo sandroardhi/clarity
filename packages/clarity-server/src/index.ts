@@ -1,4 +1,5 @@
 import { createRepository, createServer } from "./server";
+import { DropCounter } from "./services/drops";
 import { retentionDays, startRetention } from "./services/retention";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -6,7 +7,9 @@ const HOST = process.env.HOST || "0.0.0.0";
 
 function start() {
   const repository = createRepository();
-  const server = createServer({ repository });
+  const drops = new DropCounter(repository);
+  drops.start();
+  const server = createServer({ repository, drops });
   startRetention(repository, retentionDays(process.env.CLARITY_RETENTION_DAYS));
   const httpServer = server.listen(PORT, HOST, () => {
     console.log(`[Skalpl Analytics Server] Running on http://${HOST}:${PORT}`);
@@ -34,4 +37,6 @@ export * from "./db/repository";
 export * from "./db/postgres";
 export * from "./services/collector";
 export * from "./services/retention";
+export * from "./services/drops";
+export * from "./services/pageKey";
 
