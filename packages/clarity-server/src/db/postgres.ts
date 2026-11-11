@@ -1,6 +1,7 @@
 import { Pool, PoolConfig } from "pg";
 import fs from "fs";
 import { IAnalyticsRepository, parseSafeTimestamp } from "./repository";
+import { SCHEMA_SQL } from "./schema";
 import {
   Project,
   RawClickRecord,
@@ -20,7 +21,6 @@ const DEFAULT_POOL_CONFIG: Partial<PoolConfig> = {
 
 export class PgAnalyticsRepository implements IAnalyticsRepository {
   private pool: Pool;
-  private schemaInitPromise: Promise<void> | null = null;
 
   constructor(configOrPool?: PoolConfig | string | Pool) {
     if (configOrPool instanceof Pool) {
@@ -66,73 +66,15 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
     return this.pool;
   }
 
-  public async ensureSchema(): Promise<void> {
-    if (!this.schemaInitPromise) {
-      this.schemaInitPromise = this.initSchema().catch((error) => {
-        this.schemaInitPromise = null;
-        throw error;
-      });
-    }
-    await this.schemaInitPromise;
+  // Applies the schema. Idempotent; run it as a deploy step with `yarn migrate:server`, not per request.
+  public async migrate(): Promise<void> {
+    await this.pool.query(SCHEMA_SQL);
   }
 
-  /**
-   * Initialize PostgreSQL schema tables and indexes if they don't exist
-   */
-  public async initSchema(): Promise<void> {
-    const ddl = `
-      CREATE TABLE IF NOT EXISTS projects (
-          id VARCHAR(100) PRIMARY KEY,
-          name VARCHAR(255) NOT NULL,
-          allowed_domains TEXT[] NOT NULL DEFAULT '{}',
-          is_active BOOLEAN NOT NULL DEFAULT TRUE,
-          created_at BIGINT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS raw_clicks (
-          id VARCHAR(100) PRIMARY KEY,
-          project_id VARCHAR(100) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-          page_url TEXT NOT NULL,
-          device VARCHAR(20) NOT NULL DEFAULT 'desktop',
-          hash VARCHAR(100) NOT NULL,
-          selector TEXT NOT NULL,
-          e_x INT NOT NULL,
-          e_y INT NOT NULL,
-          timestamp BIGINT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_raw_clicks_lookup 
-          ON raw_clicks (project_id, page_url, device, timestamp);
-
-      CREATE INDEX IF NOT EXISTS idx_raw_clicks_group 
-          ON raw_clicks (project_id, page_url, hash, e_x, e_y);
-
-      CREATE TABLE IF NOT EXISTS raw_scrolls (
-          id VARCHAR(100) PRIMARY KEY,
-          project_id VARCHAR(100) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-          page_url TEXT NOT NULL,
-          device VARCHAR(20) NOT NULL DEFAULT 'desktop',
-          session_id VARCHAR(100) NOT NULL,
-          max_scroll_reach_y INT NOT NULL,
-          timestamp BIGINT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_raw_scrolls_lookup 
-          ON raw_scrolls (project_id, page_url, device, timestamp);
-
-      CREATE TABLE IF NOT EXISTS page_snapshots (
-          id VARCHAR(255) PRIMARY KEY,
-          project_id VARCHAR(100) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-          page_url TEXT NOT NULL,
-          device VARCHAR(20) NOT NULL DEFAULT 'desktop',
-          dom_hash VARCHAR(100) NOT NULL,
-          raw_payload TEXT NOT NULL,
-          timestamp BIGINT NOT NULL,
-          CONSTRAINT uq_page_snapshot UNIQUE (project_id, page_url, device)
-      );
-    `;
-
-    await this.pool.query(ddl);
+  public async deleteOlderThan(cutoff: number): Promise<{ clicks: number; scrolls: number }> {
+    const clicks = await this.pool.query(`DELETE FROM raw_clicks WHERE timestamp < $1`, [cutoff]);
+    const scrolls = await this.pool.query(`DELETE FROM raw_scrolls WHERE timestamp < $1`, [cutoff]);
+    return { clicks: clicks.rowCount ?? 0, scrolls: scrolls.rowCount ?? 0 };
   }
 
   public async close(): Promise<void> {
@@ -140,7 +82,6 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
   }
 
   public async createProject(project: Project): Promise<void> {
-    await this.ensureSchema();
     const query = `
       INSERT INTO projects (id, name, allowed_domains, is_active, created_at)
       VALUES ($1, $2, $3, $4, $5)
@@ -156,7 +97,6 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
   }
 
   public async upsertProject(project: Project): Promise<boolean> {
-    await this.ensureSchema();
     const query = `
       INSERT INTO projects (id, name, allowed_domains, is_active, created_at)
       VALUES ($1, $2, $3, $4, $5)
@@ -177,7 +117,6 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
   }
 
   public async getProject(id: string): Promise<Project | null> {
-    await this.ensureSchema();
     const query = `
       SELECT 
         id, 
@@ -193,7 +132,6 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
   }
 
   public async listProjects(): Promise<Project[]> {
-    await this.ensureSchema();
     const query = `
       SELECT 
         id, 
@@ -210,7 +148,6 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
 
   public async saveRawClicks(clicks: RawClickRecord[]): Promise<void> {
     if (clicks.length === 0) return;
-    await this.ensureSchema();
 
     // Build parameterized multi-row insert for high performance
     const values: any[] = [];
@@ -244,7 +181,6 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
   }
 
   public async getClickActivity(query: HeatmapQuery): Promise<Activity> {
-    await this.ensureSchema();
     const fromTimestamp = parseSafeTimestamp(query.from, 0, false);
     const toTimestamp = parseSafeTimestamp(query.to, Number.MAX_SAFE_INTEGER, true);
     const targetDevice = query.device || null;
@@ -321,7 +257,6 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
   }
 
   public async saveRawScroll(scroll: RawScrollRecord): Promise<void> {
-    await this.ensureSchema();
     const query = `
       INSERT INTO raw_scrolls (id, project_id, page_url, device, session_id, max_scroll_reach_y, timestamp)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -344,7 +279,6 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
   public async getScrollMap(
     query: HeatmapQuery
   ): Promise<{ scrollMap: ScrollMapInfo[]; totalSessions: number; avgFoldY: number }> {
-    await this.ensureSchema();
     const fromTimestamp = parseSafeTimestamp(query.from, 0, false);
     const toTimestamp = parseSafeTimestamp(query.to, Number.MAX_SAFE_INTEGER, true);
     const targetDevice = query.device || null;
@@ -418,8 +352,7 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
     };
   }
 
-  public async savePageSnapshot(snapshot: PageSnapshot): Promise<void> {
-    await this.ensureSchema();
+  public async savePageSnapshot(snapshot: PageSnapshot): Promise<boolean> {
     const query = `
       INSERT INTO page_snapshots (id, project_id, page_url, device, dom_hash, raw_payload, timestamp)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -427,9 +360,10 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
       SET dom_hash = EXCLUDED.dom_hash,
           raw_payload = EXCLUDED.raw_payload,
           timestamp = EXCLUDED.timestamp
+      WHERE page_snapshots.dom_hash <> EXCLUDED.dom_hash
     `;
 
-    await this.pool.query(query, [
+    const result = await this.pool.query(query, [
       snapshot.id,
       snapshot.projectId,
       snapshot.pageUrl,
@@ -438,6 +372,7 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
       snapshot.rawPayload,
       snapshot.timestamp
     ]);
+    return (result.rowCount ?? 0) > 0;
   }
 
   public async getPageSnapshot(
@@ -445,7 +380,6 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
     pageUrl: string,
     device: DeviceType = "desktop"
   ): Promise<PageSnapshot | null> {
-    await this.ensureSchema();
     const query = `
       SELECT 
         id,
@@ -468,7 +402,6 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
   public async listTrackedPages(
     projectId: string
   ): Promise<{ pageUrl: string; totalClicks: number; lastActive: number }[]> {
-    await this.ensureSchema();
     const query = `
       SELECT 
         page_url AS "pageUrl",
@@ -489,7 +422,6 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
   }
 
   public async clearProjectData(projectId: string, pageUrl?: string): Promise<void> {
-    await this.ensureSchema();
     await this.pool.query(
       `DELETE FROM raw_clicks WHERE project_id = $1 AND ($2::text IS NULL OR page_url = $2)`,
       [projectId, pageUrl || null]

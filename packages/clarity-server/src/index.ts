@@ -1,11 +1,13 @@
-import { createServer } from "./server";
+import { createRepository, createServer } from "./server";
+import { retentionDays, startRetention } from "./services/retention";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const HOST = process.env.HOST || "0.0.0.0";
 
-const server = createServer();
-
 function start() {
+  const repository = createRepository();
+  const server = createServer({ repository });
+  startRetention(repository, retentionDays(process.env.CLARITY_RETENTION_DAYS));
   const httpServer = server.listen(PORT, HOST, () => {
     console.log(`[Skalpl Analytics Server] Running on http://${HOST}:${PORT}`);
     console.log(`👉 Open http://localhost:${PORT}/demo in your browser for the Interactive Heatmap Playground`);
@@ -31,4 +33,5 @@ export * from "./server";
 export * from "./db/repository";
 export * from "./db/postgres";
 export * from "./services/collector";
+export * from "./services/retention";
 

@@ -251,7 +251,7 @@ test("server with postgres repository", async () => {
   test.skip(!process.env.DATABASE_URL, "DATABASE_URL is not set");
   const pgRepo = new PgAnalyticsRepository(process.env.DATABASE_URL as string);
   try {
-    await pgRepo.initSchema();
+    await pgRepo.migrate();
     await testServerWithRepository("Live PostgreSQL Storage", pgRepo);
   } finally {
     await pgRepo.close();

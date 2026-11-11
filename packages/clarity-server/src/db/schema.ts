@@ -1,6 +1,4 @@
--- Skalpl Clarity Analytics PostgreSQL Schema
--- Supports high-throughput telemetry, row-level multi-tenancy, and instant heatmap queries.
-
+export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS projects (
     id VARCHAR(100) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -21,10 +19,10 @@ CREATE TABLE IF NOT EXISTS raw_clicks (
     timestamp BIGINT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_raw_clicks_lookup 
+CREATE INDEX IF NOT EXISTS idx_raw_clicks_lookup
     ON raw_clicks (project_id, page_url, device, timestamp);
 
-CREATE INDEX IF NOT EXISTS idx_raw_clicks_group 
+CREATE INDEX IF NOT EXISTS idx_raw_clicks_group
     ON raw_clicks (project_id, page_url, hash, e_x, e_y);
 
 CREATE TABLE IF NOT EXISTS raw_scrolls (
@@ -37,7 +35,7 @@ CREATE TABLE IF NOT EXISTS raw_scrolls (
     timestamp BIGINT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_raw_scrolls_lookup 
+CREATE INDEX IF NOT EXISTS idx_raw_scrolls_lookup
     ON raw_scrolls (project_id, page_url, device, timestamp);
 
 CREATE TABLE IF NOT EXISTS page_snapshots (
@@ -50,4 +48,4 @@ CREATE TABLE IF NOT EXISTS page_snapshots (
     timestamp BIGINT NOT NULL,
     CONSTRAINT uq_page_snapshot UNIQUE (project_id, page_url, device)
 );
-
+`;

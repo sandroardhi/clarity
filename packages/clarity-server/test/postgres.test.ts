@@ -16,7 +16,7 @@ async function runPostgresTests() {
   try {
     // 1. Initialize Schema
     console.log("1. Initializing schema in PostgreSQL...");
-    await repo.initSchema();
+    await repo.migrate();
 
     const testProjectId = `test_proj_${Date.now()}`;
     const testPageUrl = "https://myskalplstore.com/checkout";

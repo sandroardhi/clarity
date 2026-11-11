@@ -39,10 +39,13 @@ export interface IAnalyticsRepository {
   getScrollMap(query: HeatmapQuery): Promise<{ scrollMap: ScrollMapInfo[]; totalSessions: number; avgFoldY: number }>;
 
   // Page DOM Snapshot operations
-  savePageSnapshot(snapshot: PageSnapshot): Promise<void>;
+  // Writes only when no snapshot exists or its domHash differs; resolves true when a row was written
+  savePageSnapshot(snapshot: PageSnapshot): Promise<boolean>;
   getPageSnapshot(projectId: string, pageUrl: string, device?: DeviceType): Promise<PageSnapshot | null>;
   listTrackedPages(projectId: string): Promise<{ pageUrl: string; totalClicks: number; lastActive: number }[]>;
   clearProjectData(projectId: string, pageUrl?: string): Promise<void>;
+  // Deletes raw clicks and scrolls with a timestamp before cutoff (epoch ms)
+  deleteOlderThan(cutoff: number): Promise<{ clicks: number; scrolls: number }>;
 }
 
 /**
@@ -219,9 +222,12 @@ export class MemoryAnalyticsRepository implements IAnalyticsRepository {
     };
   }
 
-  public async savePageSnapshot(snapshot: PageSnapshot): Promise<void> {
+  public async savePageSnapshot(snapshot: PageSnapshot): Promise<boolean> {
     const key = `${snapshot.projectId}:${snapshot.pageUrl}:${snapshot.device}`;
+    const existing = this.snapshots.get(key);
+    if (existing && existing.domHash === snapshot.domHash) return false;
     this.snapshots.set(key, snapshot);
+    return true;
   }
 
   public async getPageSnapshot(projectId: string, pageUrl: string, device: DeviceType = "desktop"): Promise<PageSnapshot | null> {
@@ -257,5 +263,12 @@ export class MemoryAnalyticsRepository implements IAnalyticsRepository {
       (s) => !(s.projectId === projectId && (!pageUrl || s.pageUrl === pageUrl))
     );
   }
-}
 
+  public async deleteOlderThan(cutoff: number): Promise<{ clicks: number; scrolls: number }> {
+    const clicks = this.rawClicks.length;
+    const scrolls = this.rawScrolls.length;
+    this.rawClicks = this.rawClicks.filter((c) => c.timestamp >= cutoff);
+    this.rawScrolls = this.rawScrolls.filter((s) => s.timestamp >= cutoff);
+    return { clicks: clicks - this.rawClicks.length, scrolls: scrolls - this.rawScrolls.length };
+  }
+}

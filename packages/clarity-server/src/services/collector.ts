@@ -109,10 +109,11 @@ export class CollectorService {
     // 5. Process Page Baseline DOM Snapshot (Discover Event)
     const hasDiscoverDom = decoded.dom && decoded.dom.some((d) => d.event === EVENT_DISCOVER);
     if (hasDiscoverDom) {
-      // Hashed so long page URLs fit the dom_hash and id columns
-      const domHash = createHash("sha1").update(`${pageUrl}|${device}|${envelope.version}`).digest("hex");
+      // domHash covers the Discover DOM only, so repeat views of an unchanged page skip the write
+      const discover = (decoded.dom || []).filter((d) => d.event === EVENT_DISCOVER).map((d) => d.data);
+      const domHash = createHash("sha1").update(`${envelope.version}|${JSON.stringify(discover)}`).digest("hex");
       const snapshot: PageSnapshot = {
-        id: `${projectId}:${domHash}`,
+        id: `${projectId}:${createHash("sha1").update(`${pageUrl}|${device}`).digest("hex")}`,
         projectId,
         pageUrl,
         device,
@@ -121,8 +122,7 @@ export class CollectorService {
         timestamp
       };
 
-      await this.repository.savePageSnapshot(snapshot);
-      snapshotSaved = true;
+      snapshotSaved = await this.repository.savePageSnapshot(snapshot);
     }
 
     return {

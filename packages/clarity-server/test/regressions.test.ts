@@ -3,6 +3,7 @@ import http from "http";
 import { IAnalyticsRepository, MemoryAnalyticsRepository } from "../src/db/repository";
 import { PgAnalyticsRepository } from "../src/db/postgres";
 import { createServer } from "../src/server";
+import { DEFAULT_RETENTION_DAYS, pruneRawData, retentionDays } from "../src/services/retention";
 
 type Token = (string | number | null | object)[];
 
@@ -48,6 +49,13 @@ async function clickTotal(base: string, projectId: string, url: string): Promise
 function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: boolean): void {
   test.describe(name, () => {
     test.skip(needsDb && !process.env.DATABASE_URL, "DATABASE_URL is not set");
+    test.beforeAll(async () => {
+      if (!needsDb) return;
+      const repo = new PgAnalyticsRepository(process.env.DATABASE_URL as string);
+      await repo.migrate();
+      await repo.migrate();
+      await repo.close();
+    });
 
     test("unknown project ids are dropped, not created", async () => {
       const repo = makeRepo();
@@ -120,7 +128,36 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
 
         await collect(base, payload(id, url, 1, [click], "s2"), ORIGIN);
         expect((await repo.getPageSnapshot(id, url, "desktop"))?.rawPayload).toBe(withDom);
+
+        await collect(base, payload(id, url, 1, [discover], "s3"), ORIGIN);
+        expect((await repo.getPageSnapshot(id, url, "desktop"))?.rawPayload).toBe(withDom);
+
+        const changed = payload(id, url, 1, [[100, 5, 1, 0, "BODY", {}]], "s4");
+        await collect(base, changed, ORIGIN);
+        expect((await repo.getPageSnapshot(id, url, "desktop"))?.rawPayload).toBe(changed);
       });
+    });
+
+    test("retention deletes raw clicks and scrolls older than the cutoff", async () => {
+      const repo = makeRepo();
+      const id = `ret_${Date.now()}`;
+      const url = "https://ret.example.com/";
+      const now = Date.now();
+      const old = now - (DEFAULT_RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000;
+      await repo.upsertProject({ id, name: id, allowedDomains: [], isActive: true, createdAt: now });
+      const row = { projectId: id, pageUrl: url, device: "desktop" as const, hash: "h", selector: "a", eX: 1, eY: 1 };
+      await repo.saveRawClicks([{ ...row, id: `${id}-old`, timestamp: old }, { ...row, id: `${id}-new`, timestamp: now }]);
+      const scroll = { projectId: id, pageUrl: url, device: "desktop" as const, maxScrollReachY: 50 };
+      await repo.saveRawScroll({ ...scroll, id: `${id}-s-old`, sessionId: "a", timestamp: old });
+      await repo.saveRawScroll({ ...scroll, id: `${id}-s-new`, sessionId: "b", timestamp: now });
+
+      const deleted = await pruneRawData(repo, DEFAULT_RETENTION_DAYS, now);
+      expect(deleted.clicks).toBeGreaterThanOrEqual(1);
+      expect(deleted.scrolls).toBeGreaterThanOrEqual(1);
+      const again = await pruneRawData(repo, DEFAULT_RETENTION_DAYS, now);
+      expect(again).toEqual({ clicks: 0, scrolls: 0 });
+      const left = await repo.getClickActivity({ projectId: id, pageUrl: url, device: "desktop" });
+      expect(left.reduce((sum, a) => sum + a.totalclicks, 0)).toBe(1);
     });
 
     test("scroll reach is a percent of page height and counts non-scrollers", async () => {
@@ -148,17 +185,12 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
 suite("memory repository", () => new MemoryAnalyticsRepository(), false);
 suite("postgres repository", () => new PgAnalyticsRepository(process.env.DATABASE_URL as string), true);
 
-test("schema init is retried after a failure", async () => {
-  let calls = 0;
-  const repo = new PgAnalyticsRepository("postgresql://u:p@127.0.0.1:1/none");
-  (repo as unknown as { initSchema: () => Promise<void> }).initSchema = async () => {
-    calls++;
-    if (calls === 1) throw new Error("db down");
-  };
-  await expect(repo.ensureSchema()).rejects.toThrow("db down");
-  await repo.ensureSchema();
-  expect(calls).toBe(2);
-  await repo.close();
+test("retention days default to 90 and accept positive integers only", () => {
+  expect(retentionDays(undefined)).toBe(90);
+  expect(retentionDays("30")).toBe(30);
+  expect(retentionDays("0")).toBe(90);
+  expect(retentionDays("-5")).toBe(90);
+  expect(retentionDays("abc")).toBe(90);
 });
 
 test("server refuses to start in production without DATABASE_URL", async () => {

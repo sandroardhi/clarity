@@ -19,7 +19,9 @@ packages/clarity-server/
 │   ├── server.ts             # Express REST API & CORS configuration
 │   ├── index.ts              # Server bootstrap and exports
 │   ├── db/
-│   │   └── repository.ts     # IAnalyticsRepository interface & in-memory/DB implementation
+│   │   ├── repository.ts     # IAnalyticsRepository interface & in-memory implementation
+│   │   ├── postgres.ts       # PostgreSQL implementation
+│   │   └── schema.ts         # Schema applied by yarn migrate:server
 │   └── services/
 │       └── collector.ts      # clarity-decode pipeline, multi-tenant validation, DOM snapshot extractor
 └── test/
@@ -55,6 +57,7 @@ packages/clarity-server/
 - `DATABASE_URL`: required when `NODE_ENV=production`. Outside production, the server falls back to `PGDATABASE` and `PGUSER`.
 - `CLARITY_INTERNAL_SECRET`: required when `NODE_ENV=production`.
 - `PORT`, `HOST`: listen address.
+- `CLARITY_RETENTION_DAYS`: raw clicks and scrolls older than this are deleted at start and every 6 hours. Default 90.
 - In production, `/demo` returns 404 and `/api/v1/demo/*` returns 403.
 
 ### 3. Heatmap Data (Skalpl Dashboard)
@@ -77,6 +80,9 @@ yarn build:server
 
 # Run Integration Tests
 yarn test:server
+
+# Apply the schema (idempotent; run on every deploy before start)
+DATABASE_URL=... yarn migrate:server
 
 # Start Server
 yarn start:server

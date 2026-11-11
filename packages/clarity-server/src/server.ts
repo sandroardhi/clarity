@@ -28,21 +28,23 @@ export interface ServerOptions {
   trackerPath?: string;
 }
 
-export function createServer(options: ServerOptions = {}): Express {
-  if (!options.repository && !process.env.DATABASE_URL && process.env.NODE_ENV === "production") {
+export function createRepository(): IAnalyticsRepository {
+  if (!process.env.DATABASE_URL && process.env.NODE_ENV === "production") {
     throw new Error("DATABASE_URL is required in production");
   }
-  const repository: IAnalyticsRepository =
-    options.repository ||
-    (process.env.DATABASE_URL
-      ? new PgAnalyticsRepository(process.env.DATABASE_URL)
-      : fs.existsSync("/var/run/postgresql")
-      ? new PgAnalyticsRepository({
-          host: "/var/run/postgresql",
-          database: process.env.PGDATABASE || "heatmap-backend-local-dummy",
-          user: process.env.PGUSER || process.env.USER || "sandro"
-        })
-      : new MemoryAnalyticsRepository());
+  if (process.env.DATABASE_URL) return new PgAnalyticsRepository(process.env.DATABASE_URL);
+  if (fs.existsSync("/var/run/postgresql")) {
+    return new PgAnalyticsRepository({
+      host: "/var/run/postgresql",
+      database: process.env.PGDATABASE || "heatmap-backend-local-dummy",
+      user: process.env.PGUSER || process.env.USER || "sandro"
+    });
+  }
+  return new MemoryAnalyticsRepository();
+}
+
+export function createServer(options: ServerOptions = {}): Express {
+  const repository: IAnalyticsRepository = options.repository || createRepository();
   const collector = new CollectorService(repository);
   const trackerScriptPath =
     options.trackerPath ||
