@@ -11,6 +11,7 @@ HOST="${CLARITY_HOST:-root@45.32.108.126}"
 KEY="${CLARITY_SSH_KEY:-$HOME/.ssh/heatmap}"
 BASE=/opt/clarity
 KEEP=5
+STAGE=""
 SSH=(ssh -o BatchMode=yes -o IdentitiesOnly=yes -i "$KEY" "$HOST")
 
 # Runs on the box as root: switch the current link, install the release's unit, restart, check health.
@@ -72,16 +73,16 @@ build() {
 }
 
 release() {
-  local sha stage
+  local sha
   sha=$(git rev-parse --short=12 HEAD)
   if ! git diff --quiet HEAD; then echo "note: uncommitted changes are not shipped; building $sha" >&2; fi
-  stage=$(mktemp -d)
-  trap 'rm -r "$stage"' EXIT
-  build "$sha" "$stage"
+  STAGE=$(mktemp -d)
+  trap 'if [ -n "$STAGE" ]; then rm -r "$STAGE"; fi' EXIT
+  build "$sha" "$STAGE"
 
   "${SSH[@]}" "install -d -o root -g clarity -m 750 $BASE/releases"
   rsync -a --delete --chown=root:clarity --chmod=D750,F640 \
-    -e "ssh -o BatchMode=yes -o IdentitiesOnly=yes -i $KEY" "$stage/release/" "$HOST:$BASE/releases/$sha/"
+    -e "ssh -o BatchMode=yes -o IdentitiesOnly=yes -i $KEY" "$STAGE/release/" "$HOST:$BASE/releases/$sha/"
 
   if ! remote_switch "$sha"; then
     echo "release $sha failed; rolling back" >&2
