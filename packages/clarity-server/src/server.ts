@@ -10,6 +10,7 @@ import { registerDemo } from "./demo";
 import { PgAnalyticsRepository } from "./db/postgres";
 import { CollectorService } from "./services/collector";
 import { DropCounter } from "./services/drops";
+import { IngestLimits, limitsFromEnv, RowLimiter } from "./services/limits";
 import { canonicalPageKey, isExcluded } from "./services/pageKey";
 import { BadRequestError, parseTimeRange, TimeRange } from "./services/timeRange";
 import {
@@ -71,7 +72,10 @@ export interface ServerOptions {
   host?: string;
   trackerPath?: string;
   internalSecret?: string;
+  // Accepted too while a rotation is in progress
+  previousSecret?: string;
   drops?: DropCounter;
+  limits?: IngestLimits;
 }
 
 export function createRepository(): IAnalyticsRepository {
@@ -86,8 +90,9 @@ export function createServer(options: ServerOptions = {}): Express {
   if (!internalSecret) {
     throw new Error("CLARITY_INTERNAL_SECRET is required");
   }
+  const secrets = [internalSecret, options.previousSecret ?? process.env.CLARITY_INTERNAL_SECRET_PREVIOUS ?? ""].filter(Boolean);
   const repository: IAnalyticsRepository = options.repository || createRepository();
-  const collector = new CollectorService(repository);
+  const collector = new CollectorService(repository, new RowLimiter(options.limits || limitsFromEnv()));
   const drops = options.drops || new DropCounter(repository);
   const trackerScriptPath =
     options.trackerPath ||
@@ -95,14 +100,10 @@ export function createServer(options: ServerOptions = {}): Express {
 
   const app = express();
 
-  // Enable CORS for telemetry ingestion from client domains
-  app.use(
-    cors({
-      origin: true,
-      credentials: true, // Allow all origins for telemetry beacons; origin security enforced via project allowedDomains
-      methods: ["GET", "POST", "PUT", "OPTIONS"]
-    })
-  );
+  // Browsers post beacons and load the scripts cross-site; clarity-js sends XHR with credentials.
+  // Origins are checked per project at collect. The management API gets no CORS headers.
+  const publicCors = cors({ origin: true, credentials: true, methods: ["GET", "POST", "OPTIONS"] });
+  app.use(["/api/v1/collect", "/tracker.js", "/visualize.js"], publicCors);
 
   // Support raw binary / gzip payloads (clarity-js browser XHR upload), JSON objects, and text (sendBeacon)
   app.use("/api/v1/collect", express.raw({ type: () => true, limit: "10mb" }));
@@ -125,7 +126,7 @@ export function createServer(options: ServerOptions = {}): Express {
 
   const internalAuthMiddleware = (req: Request, res: Response, next: () => void) => {
     const headerSecret = (req.headers["x-internal-secret"] || req.headers["x-clarity-secret"]) as string | undefined;
-    if (!secretMatches(headerSecret, internalSecret)) {
+    if (!secrets.some((secret) => secretMatches(headerSecret, secret))) {
       res.status(401).json({ error: "Unauthorized: Invalid internal secret" });
       return;
     }
@@ -141,6 +142,7 @@ export function createServer(options: ServerOptions = {}): Express {
   // ----------------------------------------------------
   app.post("/api/v1/collect", async (req: Request, res: Response) => {
     const receivedAt = Date.now();
+    let status = 204;
     try {
       let rawPayload = "";
       if (Buffer.isBuffer(req.body)) {
@@ -168,13 +170,15 @@ export function createServer(options: ServerOptions = {}): Express {
 
         const result = await collector.processPayload(rawPayload, origin, userAgent, receivedAt);
         if (result.dropped) drops.record(result.projectId, result.dropped, receivedAt);
+        if (result.rejectedClicks) drops.record(result.projectId, "invalid", receivedAt);
+        // clarity-js stops recording the page on 429
+        if (result.dropped === "rate_limited") status = 429;
       }
     } catch (error: any) {
       // Log warning on server, but never return 4xx to prevent client clarity-js from terminating
       console.warn(`[Clarity Collector] Ingestion skipped: ${error.message || "Unknown error"}`);
     } finally {
-      // Always return 204 No Content per analytics beacon standard
-      res.status(204).end();
+      res.status(status).end();
     }
   });
 
@@ -364,54 +368,25 @@ export function createServer(options: ServerOptions = {}): Express {
   // 5. Serve SDK & Visualize Bundles (Whitelabel Delivery)
   // ----------------------------------------------------
   const visualizeScriptPath = path.resolve(__dirname, "../../clarity-visualize/build/clarity.visualize.min.js");
-  let cachedTracker: string | null = null;
-  let cachedVisualize: string | null = null;
+  const cache = new Map<string, string>();
 
-  app.get("/tracker.js", (_req: Request, res: Response) => {
-    if (process.env.NODE_ENV === "production" && cachedTracker) {
-      res
-        .setHeader("Content-Type", "application/javascript; charset=utf-8")
-        .setHeader("Cache-Control", "public, max-age=3600")
-        .status(200)
-        .send(cachedTracker);
-      return;
+  // Same URL across deploys: no-cache plus express's ETag makes browsers revalidate and get 304 when unchanged.
+  // Production reads each file once; a deploy restarts the process.
+  const serveScript = (file: string, label: string) => (_req: Request, res: Response): void => {
+    let content = cache.get(file);
+    if (content === undefined) {
+      if (!fs.existsSync(file)) {
+        res.status(404).send(`// Clarity ${label} bundle not found on server.`);
+        return;
+      }
+      content = fs.readFileSync(file, "utf-8");
+      if (process.env.NODE_ENV === "production") cache.set(file, content);
     }
+    res.setHeader("Content-Type", "application/javascript; charset=utf-8").setHeader("Cache-Control", "no-cache").status(200).send(content);
+  };
 
-    if (fs.existsSync(trackerScriptPath)) {
-      const scriptContent = fs.readFileSync(trackerScriptPath, "utf-8");
-      if (process.env.NODE_ENV === "production") cachedTracker = scriptContent;
-      res
-        .setHeader("Content-Type", "application/javascript; charset=utf-8")
-        .setHeader("Cache-Control", process.env.NODE_ENV === "production" ? "public, max-age=3600" : "no-cache, must-revalidate")
-        .status(200)
-        .send(scriptContent);
-    } else {
-      res.status(404).send("// Clarity tracker bundle not found on server.");
-    }
-  });
-
-  app.get("/visualize.js", (_req: Request, res: Response) => {
-    if (process.env.NODE_ENV === "production" && cachedVisualize) {
-      res
-        .setHeader("Content-Type", "application/javascript; charset=utf-8")
-        .setHeader("Cache-Control", "public, max-age=3600")
-        .status(200)
-        .send(cachedVisualize);
-      return;
-    }
-
-    if (fs.existsSync(visualizeScriptPath)) {
-      const scriptContent = fs.readFileSync(visualizeScriptPath, "utf-8");
-      if (process.env.NODE_ENV === "production") cachedVisualize = scriptContent;
-      res
-        .setHeader("Content-Type", "application/javascript; charset=utf-8")
-        .setHeader("Cache-Control", process.env.NODE_ENV === "production" ? "public, max-age=3600" : "no-cache, must-revalidate")
-        .status(200)
-        .send(scriptContent);
-    } else {
-      res.status(404).send("// Clarity visualize bundle not found on server.");
-    }
-  });
+  app.get("/tracker.js", serveScript(trackerScriptPath, "tracker"));
+  app.get("/visualize.js", serveScript(visualizeScriptPath, "visualize"));
 
   registerDemo(app, repository);
 

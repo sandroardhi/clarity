@@ -37,7 +37,8 @@ packages/clarity-server/
   - **Response**: `204 No Content`
   - The collector drops the payload when the project is unknown or inactive. It also drops it when `Origin` (or `Referer`) is missing or its host is not in `allowedDomains`. `"*"` allows any origin. An empty list allows none.
   - It also drops the payload when its page key matches an `excludePatterns` entry. Each pattern loses its scheme, query, hash, `www.` and trailing `/`, and is lowercased. `*` matches any characters, `/` included. The pattern must match the whole key.
-  - Every drop is counted by project and reason: `unknown`, `inactive`, `origin`, `excluded`, `invalid`, `gunzip`. Counts are stored once a minute, with one log line per project and reason.
+  - Clicks with element coordinates outside 0..32767 are skipped and counted as `invalid`.
+  - Every drop is counted by project and reason: `unknown`, `inactive`, `origin`, `excluded`, `invalid`, `gunzip`, `rate_limited`. Counts are stored once a minute, with one log line per project and reason.
   - Device comes from the viewport width: below 768 px is `mobile`, below 1024 px is `tablet`, else `desktop`. A beacon without a width reuses the device of its page view. The user agent is the last fallback.
 
 **Page key**: the lowercase host without a leading `www.`, plus the path without trailing slashes. The root is `host/`. No scheme, query or hash. A non-default port stays. Clicks, scrolls and snapshots are stored by page key.
@@ -68,6 +69,8 @@ packages/clarity-server/
 - `DATABASE_URL`: required. It is passed to `pg` as is. For peer auth over the unix socket use `postgresql://user@%2Fvar%2Frun%2Fpostgresql/db`.
 - `CLARITY_INTERNAL_SECRET`: required. The server does not start without it.
 - `PORT`, `HOST`: listen address.
+- `CLARITY_INTERNAL_SECRET_PREVIOUS`: optional. Also accepted while a secret rotation is in progress. Remove it when the rotation is done.
+- `CLARITY_SESSION_ROWS_PER_MIN` (default 300) and `CLARITY_PROJECT_ROWS_PER_MIN` (default 30000): caps on stored rows (clicks plus one scroll row per beacon) per minute. A beacon over a cap gets `429`, which makes clarity-js stop recording that page, and counts as drop `rate_limited`.
 - `CLARITY_RETENTION_DAYS`: raw clicks and scrolls older than this are deleted at start and every 6 hours. Default 90.
 - In production, `/demo` returns 404 and `/api/v1/demo/*` returns 403. Outside production, the demo reads `demo_local` through `/api/v1/demo/heatmaps/*` without the secret.
 
@@ -87,7 +90,9 @@ packages/clarity-server/
 
 ### 4. SDK Serving
 - **`GET /tracker.js`**
-  - Serves the minified `clarity.min.js` tracking bundle.
+  - Serves the minified `clarity.min.js` tracking bundle. `/visualize.js` serves the visualizer.
+  - Both send `Cache-Control: no-cache` with an ETag, so browsers revalidate and get `304` until a deploy changes the file.
+- CORS headers are sent only on `/api/v1/collect`, `/tracker.js` and `/visualize.js`.
 
 ## 🏃 Running & Testing
 

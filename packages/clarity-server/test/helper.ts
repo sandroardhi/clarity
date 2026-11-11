@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 import http from "http";
 import { IAnalyticsRepository } from "../src/db/repository";
-import { createServer } from "../src/server";
+import { createServer, ServerOptions } from "../src/server";
 
 // Unique per call, also across parallel workers
 export function uid(): string {
@@ -21,8 +21,12 @@ export function payload(projectId: string, url: string, sequence: number, events
 export const click: Token = [200, 9, 10, 500, 300, 16383, 16383, 0, 1, 0, "Buy", null, "h1.h1b", 1, null, 120, 40, "BUTTON", "buy", "btn"];
 export const discover: Token = [100, 5, 1, 0, "HTML", {}];
 
-export async function withServer(repository: IAnalyticsRepository, fn: (base: string) => Promise<void>): Promise<void> {
-  const server = http.createServer(createServer({ repository, internalSecret: SECRET }));
+export async function withServer(
+  repository: IAnalyticsRepository,
+  fn: (base: string) => Promise<void>,
+  options: Partial<ServerOptions> = {}
+): Promise<void> {
+  const server = http.createServer(createServer({ repository, internalSecret: SECRET, ...options }));
   await new Promise<void>((resolve) => server.listen(0, resolve));
   try {
     await fn(`http://127.0.0.1:${(server.address() as { port: number }).port}`);

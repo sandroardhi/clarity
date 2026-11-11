@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly clarity database backup
+
+[Timer]
+# 02:30 Asia/Jakarta
+OnCalendar=*-*-* 19:30:00 UTC
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

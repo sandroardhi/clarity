@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { PgAnalyticsRepository } from "../src/db/postgres";
+import { DATA_MIGRATIONS, MIGRATE_LOCK, PgAnalyticsRepository } from "../src/db/postgres";
 import { RawClickRecord } from "../src/types";
 import { uid } from "./helper";
 
@@ -97,9 +97,14 @@ test.describe("postgres repository", () => {
     await pool.query(insertSnap, [`${id}:old`, id, "https://www.shop.example.com/a", "older", 1000]);
     await pool.query(insertSnap, [`${id}:new`, id, "https://shop.example.com/a/", "newer", 2000]);
 
-    await pool.query("DELETE FROM schema_migrations WHERE name IN ('002_canonical_page_keys', '003_backfill_page_index')");
-    await pool.query("DELETE FROM page_index WHERE project_id = $1", [id]);
-    await repo.migrate();
+    const client = await pool.connect();
+    try {
+      await client.query("SELECT pg_advisory_lock($1)", [MIGRATE_LOCK]);
+      for (const m of DATA_MIGRATIONS.filter((d) => d.name.startsWith("002_") || d.name.startsWith("003_"))) await m.run(client);
+    } finally {
+      await client.query("SELECT pg_advisory_unlock($1)", [MIGRATE_LOCK]);
+      client.release();
+    }
 
     const clicks = await pool.query("SELECT DISTINCT page_url FROM raw_clicks WHERE project_id = $1", [id]);
     expect(clicks.rows).toEqual([{ page_url: "shop.example.com/a" }]);

@@ -1,0 +1,16 @@
+[Unit]
+Description=pg_dump of the clarity database to Garage S3
+After=postgresql.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=clarity
+Group=clarity
+# Read by systemd as root; the file stays root:root 0600
+EnvironmentFile=/etc/clarity-backup.env
+ExecStart=/usr/local/bin/clarity-backup
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true

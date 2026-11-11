@@ -157,6 +157,8 @@ export interface IngestionResult {
   scrollRecorded: boolean;
   snapshotSaved: boolean;
   dropped?: DropReason;
+  // Clicks skipped for out-of-range coordinates
+  rejectedClicks?: number;
 }
 
 export type DropReason = "unknown" | "inactive" | "origin" | "excluded" | "invalid" | "gunzip" | "rate_limited";

@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import { decode } from "clarity-decode";
 import type { DecodedPayload } from "clarity-decode/types/data";
 import { IAnalyticsRepository } from "../db/repository";
+import { RowLimiter } from "./limits";
 import { canonicalPageKey, isExcluded, snapshotId } from "./pageKey";
 import { DeviceType, DropReason, IngestionResult, RawClickRecord, RawScrollRecord, PageSnapshot } from "../types";
 
@@ -10,6 +11,9 @@ const EVENT_DISCOVER = 5;
 
 const MOBILE_MAX_WIDTH = 767;
 const TABLET_MAX_WIDTH = 1023;
+// clarity-js scales element-relative click positions to 0..32767
+const MAX_ELEMENT_COORD = 32767;
+const MAX_VIEWPORT_PX = 20000;
 
 interface Viewport {
   width: number;
@@ -22,12 +26,20 @@ export function deviceForWidth(width: number): DeviceType {
   return "desktop";
 }
 
+function validCoord(value: unknown): boolean {
+  return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= MAX_ELEMENT_COORD;
+}
+
+function validSize(value: unknown): value is number {
+  return typeof value === "number" && value > 0 && value <= MAX_VIEWPORT_PX;
+}
+
 function dropped(projectId: string, reason: DropReason): IngestionResult {
   return { success: false, projectId, clicksCount: 0, scrollRecorded: false, snapshotSaved: false, dropped: reason };
 }
 
 export class CollectorService {
-  constructor(private readonly repository: IAnalyticsRepository) {}
+  constructor(private readonly repository: IAnalyticsRepository, private readonly limiter?: RowLimiter) {}
 
   // Drops come back as `dropped` with a reason; only repository failures throw
   public async processPayload(
@@ -64,6 +76,12 @@ export class CollectorService {
     if (!pageKey) return dropped(projectId, "invalid");
     if (isExcluded(pageKey, project.excludePatterns || [])) return dropped(projectId, "excluded");
 
+    const clicks = (decoded.click || []).filter((e) => validCoord(e.data.eX) && validCoord(e.data.eY));
+    const rejectedClicks = (decoded.click || []).length - clicks.length;
+    if (this.limiter && !this.limiter.allow(projectId, envelope.sessionId, clicks.length + 1, receivedAt)) {
+      return dropped(projectId, "rate_limited");
+    }
+
     const scrollId = `${projectId}-${envelope.sessionId}-${envelope.pageNum}`;
     const viewport = this.viewport(decoded);
     const device = viewport.width > 0
@@ -76,8 +94,8 @@ export class CollectorService {
     let scrollRecorded = false;
     let snapshotSaved = false;
 
-    if (decoded.click && decoded.click.length > 0) {
-      const clickRecords: RawClickRecord[] = decoded.click.map((clickEvent) => {
+    if (clicks.length > 0) {
+      const clickRecords: RawClickRecord[] = clicks.map((clickEvent) => {
         const c = clickEvent.data;
         let selector = "unknown";
         if (c.id) {
@@ -149,19 +167,19 @@ export class CollectorService {
       clicks: clicksCount
     });
 
-    return { success: true, projectId, clicksCount, scrollRecorded, snapshotSaved };
+    return { success: true, projectId, clicksCount, scrollRecorded, snapshotSaved, rejectedClicks };
   }
 
   // Last viewport size in the payload, in CSS px; 0 when absent
   private viewport(decoded: DecodedPayload): Viewport {
     const size: Viewport = { width: 0, height: 0 };
     for (const b of decoded.baseline || []) {
-      if (b.data.screenWidth > 0) size.width = b.data.screenWidth;
-      if (b.data.screenHeight > 0) size.height = b.data.screenHeight;
+      if (validSize(b.data.screenWidth)) size.width = b.data.screenWidth;
+      if (validSize(b.data.screenHeight)) size.height = b.data.screenHeight;
     }
     for (const r of decoded.resize || []) {
-      if (r.data.width > 0) size.width = r.data.width;
-      if (r.data.height > 0) size.height = r.data.height;
+      if (validSize(r.data.width)) size.width = r.data.width;
+      if (validSize(r.data.height)) size.height = r.data.height;
     }
     return size;
   }

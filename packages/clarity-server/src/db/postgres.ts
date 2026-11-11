@@ -16,7 +16,7 @@ import {
   PageIndexRow
 } from "../types";
 
-const MIGRATE_LOCK = 7461123;
+export const MIGRATE_LOCK = 7461123;
 
 const DEFAULT_POOL_CONFIG: Partial<PoolConfig> = {
   max: 25,
@@ -55,7 +55,7 @@ async function canonicalizeSnapshots(client: PoolClient): Promise<void> {
 }
 
 // Run once each, in order, after SCHEMA_SQL. Never edit or reorder a released step.
-const DATA_MIGRATIONS: { name: string; run: (client: PoolClient) => Promise<unknown> }[] = [
+export const DATA_MIGRATIONS: { name: string; run: (client: PoolClient) => Promise<unknown> }[] = [
   {
     // Rows written before receive time existed hold the browser clock in timestamp
     name: "001_client_time_from_timestamp",
