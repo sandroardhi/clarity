@@ -71,13 +71,14 @@ packages/clarity-server/
 - `PORT`, `HOST`: listen address.
 - `CLARITY_INTERNAL_SECRET_PREVIOUS`: optional. Also accepted while a secret rotation is in progress. Remove it when the rotation is done.
 - `CLARITY_SESSION_ROWS_PER_MIN` (default 300) and `CLARITY_PROJECT_ROWS_PER_MIN` (default 30000): caps on stored rows (clicks plus one scroll row per beacon) per minute. A beacon over a cap gets `429`, which makes clarity-js stop recording that page, and counts as drop `rate_limited`.
+- `CLARITY_DEFAULT_TZ`: zone for `Y-m-d` heatmap bounds sent without `tz`. Default `Asia/Jakarta`. An invalid value stops boot.
 - `CLARITY_RETENTION_DAYS`: deleted at start and every 6 hours: raw clicks and scrolls older than this, page index rows not seen in this time, and snapshots older than this whose page and device had no activity in this time. Default 90.
 - In production, `/demo` returns 404 and `/api/v1/demo/*` returns 403. Outside production, the demo reads `demo_local` through `/api/v1/demo/heatmaps/*` without the secret.
 
 ### 3. Heatmap Data (Skalpl Dashboard)
 - Every route takes `projectId` and `pageKey`. A `pageUrl` is accepted instead and is turned into its page key. An unknown project returns 404.
 - `device` is `desktop`, `mobile` or `tablet`. Omit it for all devices. Any other value returns 400. Responses carry `pageKey` and `device` (`null` when omitted).
-- `from` and `to` are ISO 8601 with an offset (`2026-11-11T00:00:00+07:00`), or `Y-m-d` with `tz` (an IANA zone such as `Asia/Jakarta`, or `+07:00`). `from` is inclusive and `to` is exclusive; a `Y-m-d` `to` covers that whole day. Omit them for no bound. Anything else returns 400.
+- `from` and `to` are ISO 8601 with an offset (`2026-11-11T00:00:00+07:00`), or `Y-m-d` with an optional `tz` (an IANA zone such as `Asia/Jakarta`, or `+07:00`). Without `tz`, `Y-m-d` uses `CLARITY_DEFAULT_TZ`. `from` is inclusive and `to` is exclusive; a `Y-m-d` `to` covers that whole day. Omit them for no bound. Anything else returns 400.
 - Filters and retention use the server receive time. The browser clock is kept in `client_time`.
 - **`GET /api/v1/heatmaps/click?projectId=...&pageKey=...&device=desktop&from=...&to=...`**
   - Returns: `HeatmapClickResponse` (`activity: Activity` array of `{ hash, selector, totalclicks, x, y, clicks, points }`).

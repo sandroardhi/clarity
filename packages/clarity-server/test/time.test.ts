@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import http from "http";
 import { MemoryAnalyticsRepository } from "../src/db/repository";
 import { createServer } from "../src/server";
-import { BadRequestError, parseTimeRange } from "../src/services/timeRange";
+import { BadRequestError, DEFAULT_TZ, parseTimeRange } from "../src/services/timeRange";
 import { AUTH, JSON_AUTH, SECRET } from "./helper";
 
 test("time range takes ISO with an offset, or Y-m-d with tz", () => {
@@ -17,8 +17,23 @@ test("time range takes ISO with an offset, or Y-m-d with tz", () => {
   expect(parseTimeRange("2026-03-08", undefined, "America/New_York").from).toBe(Date.UTC(2026, 2, 8, 5));
 });
 
-test("time range rejects sentinels, bare days and bad zones", () => {
-  for (const args of [["all"], [undefined, "now"], ["2026-11-11"], ["2026-11-11T00:00:00"], ["2026-02-30", undefined, "+07:00"],
+test("a Y-m-d bound without tz falls back to the default zone, and an explicit tz wins", () => {
+  const wib = { from: Date.UTC(2026, 10, 10, 17), to: Date.UTC(2026, 10, 11, 17) };
+  expect(DEFAULT_TZ).toBe("Asia/Jakarta");
+  expect(parseTimeRange("2026-11-11", "2026-11-11")).toEqual(wib);
+  expect(parseTimeRange("2026-11-11", "2026-11-11", "")).toEqual(wib);
+  expect(parseTimeRange("2026-11-11", undefined, undefined, "+00:00").from).toBe(Date.UTC(2026, 10, 11));
+  expect(parseTimeRange("2026-11-11", "2026-11-11", "UTC")).toEqual({ from: Date.UTC(2026, 10, 11), to: Date.UTC(2026, 10, 12) });
+  expect(parseTimeRange("2026-11-11", undefined, "+09:00", "UTC").from).toBe(Date.UTC(2026, 10, 10, 15));
+});
+
+test("an invalid default zone stops the server at boot", () => {
+  expect(() => createServer({ repository: new MemoryAnalyticsRepository(), internalSecret: SECRET, defaultTz: "Mars/Base" }))
+    .toThrow(/CLARITY_DEFAULT_TZ/);
+});
+
+test("time range rejects sentinels, bad formats and bad zones", () => {
+  for (const args of [["all"], [undefined, "now"], ["2026-11-11T00:00:00"], ["2026-02-30", undefined, "+07:00"],
     ["2026-11-11", undefined, "Mars/Base"], ["2026-11-12", "2026-11-11", "+07:00"]]) {
     expect(() => parseTimeRange(...(args as [string?, string?, string?]))).toThrow(BadRequestError);
   }
@@ -52,7 +67,14 @@ test("collect stamps server receive time and keeps the client clock apart", asyn
     expect(((await old.json()) as { totalClicks: number }).totalClicks).toBe(0);
 
     expect((await fetch(url("&from=all"), { headers: AUTH })).status).toBe(400);
-    expect((await fetch(url("&from=2026-11-11"), { headers: AUTH })).status).toBe(400);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta" }).format(new Date());
+    const day = await fetch(url(`&from=${today}&to=${today}`), { headers: AUTH });
+    expect(day.status).toBe(200);
+    expect(((await day.json()) as { totalClicks: number }).totalClicks).toBe(1);
+    const noTz = (await (await fetch(url("&from=2026-11-11"), { headers: AUTH })).json()) as { from: number };
+    expect(noTz.from).toBe(Date.UTC(2026, 10, 10, 17));
+    const utc = (await (await fetch(url("&from=2026-11-11&tz=UTC"), { headers: AUTH })).json()) as { from: number };
+    expect(utc.from).toBe(Date.UTC(2026, 10, 11));
   } finally {
     server.close();
   }

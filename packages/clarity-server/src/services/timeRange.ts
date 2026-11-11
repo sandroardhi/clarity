@@ -5,28 +5,41 @@ export interface TimeRange {
 
 export class BadRequestError extends Error {}
 
+export const DEFAULT_TZ = "Asia/Jakarta";
+
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ISO_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
 const OFFSET = /^([+-])(\d{2}):(\d{2})$/;
 
 // from is inclusive and to is exclusive, both epoch ms. A Y-m-d `to` covers that whole day in tz.
-export function parseTimeRange(from?: string, to?: string, tz?: string): TimeRange {
-  const range = { from: parseBound("from", from, tz, false), to: parseBound("to", to, tz, true) };
+// A Y-m-d bound without tz uses defaultTz.
+export function parseTimeRange(from?: string, to?: string, tz?: string, defaultTz: string = DEFAULT_TZ): TimeRange {
+  const zone = tz || defaultTz;
+  const range = { from: parseBound("from", from, zone, false), to: parseBound("to", to, zone, true) };
   if (range.from !== null && range.to !== null && range.from >= range.to) {
     throw new BadRequestError("from must be before to");
   }
   return range;
 }
 
-function parseBound(name: string, value: string | undefined, tz: string | undefined, isEnd: boolean): number | null {
+export function isValidTimeZone(tz: string): boolean {
+  if (OFFSET.test(tz)) return true;
+  try {
+    offsetMs(0, tz);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function parseBound(name: string, value: string | undefined, tz: string, isEnd: boolean): number | null {
   if (value === undefined || value === "") return null;
   if (ISO_WITH_OFFSET.test(value)) {
     const time = Date.parse(value);
     if (!Number.isNaN(time)) return time;
   }
   const day = DAY.exec(value);
-  if (!day) throw new BadRequestError(`${name} must be ISO 8601 with an offset, or Y-m-d with tz`);
-  if (!tz) throw new BadRequestError(`${name} is a Y-m-d date, so tz is required`);
+  if (!day) throw new BadRequestError(`${name} must be ISO 8601 with an offset, or Y-m-d`);
   const [y, m, d] = [Number(day[1]), Number(day[2]), Number(day[3])];
   const utcDay = Date.UTC(y, m - 1, d + (isEnd ? 1 : 0));
   if (new Date(Date.UTC(y, m - 1, d)).getUTCDate() !== d) throw new BadRequestError(`${name} is not a valid date`);

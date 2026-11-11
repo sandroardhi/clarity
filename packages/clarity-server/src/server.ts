@@ -12,7 +12,7 @@ import { CollectorService } from "./services/collector";
 import { DropCounter } from "./services/drops";
 import { IngestLimits, limitsFromEnv, RowLimiter } from "./services/limits";
 import { canonicalPageKey, isExcluded } from "./services/pageKey";
-import { BadRequestError, parseTimeRange, TimeRange } from "./services/timeRange";
+import { BadRequestError, DEFAULT_TZ, isValidTimeZone, parseTimeRange, TimeRange } from "./services/timeRange";
 import {
   DeviceType,
   HeatmapClickResponse,
@@ -76,6 +76,8 @@ export interface ServerOptions {
   previousSecret?: string;
   drops?: DropCounter;
   limits?: IngestLimits;
+  // Zone for Y-m-d bounds sent without tz
+  defaultTz?: string;
 }
 
 export function createRepository(): IAnalyticsRepository {
@@ -92,6 +94,10 @@ export function createServer(options: ServerOptions = {}): Express {
   }
   const secrets = [internalSecret, options.previousSecret ?? process.env.CLARITY_INTERNAL_SECRET_PREVIOUS ?? ""].filter(Boolean);
   const repository: IAnalyticsRepository = options.repository || createRepository();
+  const defaultTz = options.defaultTz || process.env.CLARITY_DEFAULT_TZ || DEFAULT_TZ;
+  if (!isValidTimeZone(defaultTz)) {
+    throw new Error(`CLARITY_DEFAULT_TZ '${defaultTz}' is not an IANA zone or an offset like +07:00`);
+  }
   const collector = new CollectorService(repository, new RowLimiter(options.limits || limitsFromEnv()));
   const drops = options.drops || new DropCounter(repository);
   const trackerScriptPath =
@@ -201,7 +207,7 @@ export function createServer(options: ServerOptions = {}): Express {
     let range: TimeRange = { from: null, to: null };
     if (withRange) {
       try {
-        range = parseTimeRange(from, to, tz);
+        range = parseTimeRange(from, to, tz, defaultTz);
       } catch (error) {
         if (!(error instanceof BadRequestError)) throw error;
         res.status(400).json({ error: error.message });
