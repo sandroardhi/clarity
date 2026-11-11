@@ -1,3 +1,4 @@
+import { test } from "@playwright/test";
 import { PgAnalyticsRepository } from "../src/db/postgres";
 import { Activity, DeviceType, HeatmapQuery, PageSnapshot, Project, RawClickRecord, RawScrollRecord } from "../src/types";
 
@@ -10,12 +11,7 @@ function assert(condition: boolean, message: string): void {
 async function runPostgresTests() {
   console.log("=== Running PostgreSQL Real Database Integration Tests ===");
 
-  const config = process.env.DATABASE_URL || {
-    host: "/var/run/postgresql",
-    database: "heatmap-backend-local-dummy",
-    user: process.env.USER || "sandro"
-  };
-  const repo = new PgAnalyticsRepository(config);
+  const repo = new PgAnalyticsRepository(process.env.DATABASE_URL as string);
 
   try {
     // 1. Initialize Schema
@@ -201,7 +197,7 @@ async function runPostgresTests() {
   }
 }
 
-runPostgresTests().catch((err) => {
-  console.error("PostgreSQL test failed:", err);
-  process.exit(1);
+test("postgres repository stores and aggregates telemetry", async () => {
+  test.skip(!process.env.DATABASE_URL, "DATABASE_URL is not set");
+  await runPostgresTests();
 });

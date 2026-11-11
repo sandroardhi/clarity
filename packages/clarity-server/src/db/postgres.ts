@@ -68,7 +68,10 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
 
   public async ensureSchema(): Promise<void> {
     if (!this.schemaInitPromise) {
-      this.schemaInitPromise = this.initSchema();
+      this.schemaInitPromise = this.initSchema().catch((error) => {
+        this.schemaInitPromise = null;
+        throw error;
+      });
     }
     await this.schemaInitPromise;
   }
@@ -141,6 +144,7 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
     const query = `
       INSERT INTO projects (id, name, allowed_domains, is_active, created_at)
       VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (id) DO NOTHING
     `;
     await this.pool.query(query, [
       project.id,
@@ -149,6 +153,27 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
       project.isActive,
       project.createdAt
     ]);
+  }
+
+  public async upsertProject(project: Project): Promise<boolean> {
+    await this.ensureSchema();
+    const query = `
+      INSERT INTO projects (id, name, allowed_domains, is_active, created_at)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (id) DO UPDATE
+      SET name = EXCLUDED.name,
+          allowed_domains = EXCLUDED.allowed_domains,
+          is_active = EXCLUDED.is_active
+      RETURNING (xmax = 0) AS inserted
+    `;
+    const res = await this.pool.query(query, [
+      project.id,
+      project.name,
+      project.allowedDomains,
+      project.isActive,
+      project.createdAt
+    ]);
+    return res.rows[0].inserted === true;
   }
 
   public async getProject(id: string): Promise<Project | null> {
@@ -164,7 +189,7 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
       WHERE id = $1
     `;
     const res = await this.pool.query(query, [id]);
-    return res.rows.length > 0 ? (res.rows[0] as Project) : null;
+    return res.rows.length > 0 ? { ...res.rows[0], createdAt: Number(res.rows[0].createdAt) } : null;
   }
 
   public async listProjects(): Promise<Project[]> {
@@ -180,7 +205,7 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
       ORDER BY created_at DESC
     `;
     const res = await this.pool.query(query);
-    return res.rows as Project[];
+    return res.rows.map((r) => ({ ...r, createdAt: Number(r.createdAt) }));
   }
 
   public async saveRawClicks(clicks: RawClickRecord[]): Promise<void> {

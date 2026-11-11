@@ -1,5 +1,6 @@
 import express, { Express, Request, Response } from "express";
 import cors from "cors";
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
@@ -28,6 +29,9 @@ export interface ServerOptions {
 }
 
 export function createServer(options: ServerOptions = {}): Express {
+  if (!options.repository && !process.env.DATABASE_URL && process.env.NODE_ENV === "production") {
+    throw new Error("DATABASE_URL is required in production");
+  }
   const repository: IAnalyticsRepository =
     options.repository ||
     (process.env.DATABASE_URL
@@ -51,7 +55,7 @@ export function createServer(options: ServerOptions = {}): Express {
     cors({
       origin: true,
       credentials: true, // Allow all origins for telemetry beacons; origin security enforced via project allowedDomains
-      methods: ["GET", "POST", "OPTIONS"]
+      methods: ["GET", "POST", "PUT", "OPTIONS"]
     })
   );
 
@@ -83,7 +87,7 @@ export function createServer(options: ServerOptions = {}): Express {
       return next(); // Bypass if not set in local dev
     }
     const headerSecret = (req.headers["x-internal-secret"] || req.headers["x-clarity-secret"]) as string | undefined;
-    if (headerSecret !== internalSecret) {
+    if (!secretMatches(headerSecret, internalSecret)) {
       res.status(401).json({ error: "Unauthorized: Invalid internal secret" });
       return;
     }
@@ -239,8 +243,10 @@ export function createServer(options: ServerOptions = {}): Express {
   // ----------------------------------------------------
   // 4. Multi-Tenant Project Management Routes
   // ----------------------------------------------------
-  app.post("/api/v1/projects", async (req: Request, res: Response) => {
-    let body = req.body as CreateProjectInput;
+  // Create or update. The backend re-syncs domains and the heatmap toggle on every change.
+  // 201 created, 200 updated, 400 invalid body, 401 bad secret.
+  const upsertProject = async (req: Request, res: Response, pathId?: string): Promise<void> => {
+    let body = req.body as Partial<CreateProjectInput> & { isActive?: unknown };
     if (typeof req.body === "string") {
       try {
         body = JSON.parse(req.body);
@@ -249,30 +255,41 @@ export function createServer(options: ServerOptions = {}): Express {
         return;
       }
     }
-    const { id, name, allowedDomains } = body || {};
+    const { name, allowedDomains, isActive } = body || {};
+    const id = pathId || (body || {}).id;
 
     if (!id || !name) {
       res.status(400).json({ error: "Missing required fields: id, name" });
       return;
     }
-
-    const existing = await repository.getProject(id);
-    if (existing) {
-      res.status(409).json({ error: `Project '${id}' already exists` });
+    if (pathId && body && body.id !== undefined && body.id !== pathId) {
+      res.status(400).json({ error: "Body id does not match path id" });
+      return;
+    }
+    if (allowedDomains !== undefined && (!Array.isArray(allowedDomains) || allowedDomains.some((d) => typeof d !== "string"))) {
+      res.status(400).json({ error: "allowedDomains must be an array of strings" });
+      return;
+    }
+    if (isActive !== undefined && typeof isActive !== "boolean") {
+      res.status(400).json({ error: "isActive must be a boolean" });
       return;
     }
 
+    const existing = await repository.getProject(id);
     const project: Project = {
       id,
       name,
-      allowedDomains: allowedDomains || ["*"],
-      isActive: true,
-      createdAt: Date.now()
+      allowedDomains: allowedDomains || (existing ? existing.allowedDomains : []),
+      isActive: isActive !== undefined ? isActive : existing ? existing.isActive : true,
+      createdAt: existing ? existing.createdAt : Date.now()
     };
 
-    await repository.createProject(project);
-    res.status(201).json({ success: true, project });
-  });
+    const created = await repository.upsertProject(project);
+    res.status(created ? 201 : 200).json({ success: true, project });
+  };
+
+  app.post("/api/v1/projects", (req: Request, res: Response) => upsertProject(req, res));
+  app.put("/api/v1/projects/:projectId", (req: Request, res: Response) => upsertProject(req, res, String(req.params.projectId)));
 
   app.get("/api/v1/projects/:projectId", async (req: Request, res: Response) => {
     const projectId = String(req.params.projectId);
@@ -457,6 +474,10 @@ export function createServer(options: ServerOptions = {}): Express {
   });
 
   app.get("/demo", async (_req: Request, res: Response) => {
+    if (process.env.NODE_ENV === "production") {
+      res.status(404).end();
+      return;
+    }
     // Ensure demo_local project is registered
     const existing = await repository.getProject("demo_local");
     if (!existing) {
@@ -934,4 +955,11 @@ export function createServer(options: ServerOptions = {}): Express {
   });
 
   return app;
+}
+
+function secretMatches(given: string | undefined, expected: string): boolean {
+  if (typeof given !== "string") return false;
+  const a = crypto.createHash("sha256").update(given).digest();
+  const b = crypto.createHash("sha256").update(expected).digest();
+  return crypto.timingSafeEqual(a, b);
 }

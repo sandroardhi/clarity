@@ -1,9 +1,11 @@
+import { createHash } from "crypto";
 import { decode } from "clarity-decode";
+import type { DecodedPayload } from "clarity-decode/types/data";
 import { IAnalyticsRepository } from "../db/repository";
 import { DeviceType, IngestionResult, RawClickRecord, RawScrollRecord, PageSnapshot } from "../types";
 
-// Constant for Clarity Data.Event.Discover without importing browser-only clarity-js
-const EVENT_DISCOVER = 4;
+// Data.Event.Discover in clarity-js
+const EVENT_DISCOVER = 5;
 
 export class CollectorService {
   constructor(private readonly repository: IAnalyticsRepository) {}
@@ -30,31 +32,16 @@ export class CollectorService {
 
     const projectId = envelope.projectId;
 
-    // 2. Validate Multi-Tenant Project with JIT Auto-Provisioning
-    let project = await this.repository.getProject(projectId);
-    if (!project) {
-      // Handshake was already authorized by Skalpl backend, auto-provision project on-the-fly
-      project = {
-        id: projectId,
-        name: `Store ${projectId}`,
-        allowedDomains: ["*"],
-        isActive: true,
-        createdAt: Date.now()
-      };
-      await this.repository.createProject(project);
-    }
-
-    if (!project.isActive) {
-      // If manually suspended, silently ignore data
+    // 2. Only projects synced by the Skalpl backend accept data; unknown ids are dropped
+    const project = await this.repository.getProject(projectId);
+    if (!project || !project.isActive) {
       return { success: false, projectId, clicksCount: 0, scrollRecorded: false, snapshotSaved: false };
     }
 
-    if (originHeader && project.allowedDomains.length > 0 && !project.allowedDomains.includes("*")) {
-      const allowed = this.isOriginAllowed(originHeader, project.allowedDomains);
-      if (!allowed) {
-        // Discard spam/unauthorized origin silently without throwing 4xx
-        return { success: false, projectId, clicksCount: 0, scrollRecorded: false, snapshotSaved: false };
-      }
+    // Browsers always send Origin on these cross-site posts; a missing or unlisted origin is dropped.
+    // An empty list allows nothing; "*" allows every origin.
+    if (!project.allowedDomains.includes("*") && (!originHeader || !this.isOriginAllowed(originHeader, project.allowedDomains))) {
+      return { success: false, projectId, clicksCount: 0, scrollRecorded: false, snapshotSaved: false };
     }
 
     const device = this.detectDevice(userAgentHeader);
@@ -101,19 +88,10 @@ export class CollectorService {
       }
     }
 
-    // 4. Process Scroll depth
-    if (decoded.scroll && decoded.scroll.length > 0) {
-      // Calculate max reach in percent (0..100)
-      let maxReachPercent = 0;
-      for (const scrollEvent of decoded.scroll) {
-        // scroll event gives scrollY or relative reach
-        const scrollData = scrollEvent.data;
-        if (scrollData && typeof scrollData.y === "number") {
-          // Approximate relative percentage reach
-          maxReachPercent = Math.min(Math.max(scrollData.y, maxReachPercent), 100);
-        }
-      }
-
+    // 4. Process Scroll depth; sequence 1 also counts sessions that never scroll
+    const hasScroll = !!decoded.scroll && decoded.scroll.length > 0;
+    const maxReachPercent = hasScroll || envelope.sequence === 1 ? this.scrollReachPercent(decoded) : null;
+    if (maxReachPercent !== null) {
       const scrollRecord: RawScrollRecord = {
         id: `${projectId}-${envelope.sessionId}-${envelope.pageNum}`,
         projectId,
@@ -129,11 +107,10 @@ export class CollectorService {
     }
 
     // 5. Process Page Baseline DOM Snapshot (Discover Event)
-    // Check if payload contains the Discover DOM snapshot event (usually in sequence 1 or 2)
     const hasDiscoverDom = decoded.dom && decoded.dom.some((d) => d.event === EVENT_DISCOVER);
-    if (hasDiscoverDom || envelope.sequence === 1) {
-      // Store baseline snapshot for reconstructing page in visualizer.html()
-      const domHash = `${pageUrl}_${device}_${envelope.version}`;
+    if (hasDiscoverDom) {
+      // Hashed so long page URLs fit the dom_hash and id columns
+      const domHash = createHash("sha1").update(`${pageUrl}|${device}|${envelope.version}`).digest("hex");
       const snapshot: PageSnapshot = {
         id: `${projectId}:${domHash}`,
         projectId,
@@ -155,6 +132,32 @@ export class CollectorService {
       scrollRecorded,
       snapshotSaved
     };
+  }
+
+  // Deepest point seen, as (scrollY + viewport height) / document height in percent; null if the payload lacks sizes.
+  // No scroll event means the visitor is still at the top.
+  private scrollReachPercent(decoded: DecodedPayload): number | null {
+    let docHeight = 0;
+    let viewportHeight = 0;
+    let maxScrollY = 0;
+
+    for (const b of decoded.baseline || []) {
+      if (b.data.docHeight > 0) docHeight = b.data.docHeight;
+      if (b.data.screenHeight > 0) viewportHeight = b.data.screenHeight;
+      maxScrollY = Math.max(maxScrollY, b.data.scrollY || 0);
+    }
+    for (const d of decoded.doc || []) {
+      if (d.data.height > 0) docHeight = d.data.height;
+    }
+    for (const r of decoded.resize || []) {
+      if (r.data.height > 0) viewportHeight = r.data.height;
+    }
+    for (const e of decoded.scroll || []) {
+      if (typeof e.data.y === "number") maxScrollY = Math.max(maxScrollY, e.data.y);
+    }
+
+    if (docHeight <= 0 || viewportHeight <= 0) return null;
+    return Math.min(100, Math.round(((maxScrollY + viewportHeight) / docHeight) * 100));
   }
 
   private isOriginAllowed(origin: string, allowedDomains: string[]): boolean {

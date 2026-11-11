@@ -23,7 +23,10 @@ export function parseSafeTimestamp(
 
 export interface IAnalyticsRepository {
   // Project operations
+  // Inserts unless the id exists; safe when two beacons race to provision the same project
   createProject(project: Project): Promise<void>;
+  // Inserts, or updates name, allowedDomains and isActive; resolves true when a row was inserted
+  upsertProject(project: Project): Promise<boolean>;
   getProject(id: string): Promise<Project | null>;
   listProjects(): Promise<Project[]>;
 
@@ -54,7 +57,15 @@ export class MemoryAnalyticsRepository implements IAnalyticsRepository {
   private snapshots: Map<string, PageSnapshot> = new Map(); // key: `${projectId}:${pageUrl}:${device}`
 
   public async createProject(project: Project): Promise<void> {
-    this.projects.set(project.id, { ...project });
+    if (!this.projects.has(project.id)) this.projects.set(project.id, { ...project });
+  }
+
+  public async upsertProject(project: Project): Promise<boolean> {
+    const existing = this.projects.get(project.id);
+    this.projects.set(project.id, existing
+      ? { ...existing, name: project.name, allowedDomains: [...project.allowedDomains], isActive: project.isActive }
+      : { ...project });
+    return !existing;
   }
 
   public async getProject(id: string): Promise<Project | null> {

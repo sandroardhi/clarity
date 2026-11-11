@@ -1,3 +1,4 @@
+import { test } from "@playwright/test";
 import { createServer } from "../src/server";
 import { IAnalyticsRepository, MemoryAnalyticsRepository } from "../src/db/repository";
 import { PgAnalyticsRepository } from "../src/db/postgres";
@@ -90,8 +91,8 @@ async function testServerWithRepository(repoName: string, repository: IAnalytics
     });
     assert(unauthorizedRes.status === 204, "Beacon response must always be 204 No Content");
 
-    // 4b. Testing JIT Auto-Provisioning for Unregistered Project
-    console.log("4b. Testing JIT Auto-Provisioning...");
+    // 4b. Unknown project ids are dropped, not auto-created
+    console.log("4b. Testing that unknown projects are not auto-created...");
     const autoProjId = `auto_proj_${Date.now()}`;
     const autoPayload = JSON.stringify({
       e: ["0.8.76", 1, 1000, 500, autoProjId, "u1", "s1", 1, 0, 0, 0, "https://auto.com/"],
@@ -99,12 +100,11 @@ async function testServerWithRepository(repoName: string, repository: IAnalytics
     });
     const autoRes = await fetch(`${baseUrl}/api/v1/collect`, {
       method: "POST",
-      headers: { "Content-Type": "text/plain" },
+      headers: { "Content-Type": "text/plain", "Origin": "https://auto.com" },
       body: autoPayload
     });
-    assert(autoRes.status === 204, "Auto-provisioned ingestion should return 204");
-    const autoProjInDb = await repository.getProject(autoProjId);
-    assert(autoProjInDb !== null, "Project must be automatically created in repository");
+    assert(autoRes.status === 204, "Beacon for unknown project should still return 204");
+    assert((await repository.getProject(autoProjId)) === null, "Unknown project must not be created");
 
     // 5. Ingestion: Authorized Origin with Clicks & Scroll
     console.log("5. Testing Telemetry Ingestion (POST /api/v1/collect with Clicks)...");
@@ -124,14 +124,17 @@ async function testServerWithRepository(repoName: string, repository: IAnalytics
         testPageUrl
       ],
       a: [
+        // Document size (8 = Event.Document) and viewport (11 = Event.Resize)
+        [90, 8, 1200, 1000],
+        [95, 11, 1200, 600],
         // Discover DOM (5 = Event.Discover)
         [100, 5, 1, 0, "HTML", {}],
         // Click 1 (9 = Event.Click)
         [200, 9, 10, 500, 300, 16383, 16383, 0, 1, 0, "Buy Now", null, "hash_btn_buy.hash_btn_buy_beta", 1, null, 120, 40, "BUTTON", "cta-buy", "btn-main"],
         // Click 2 (9 = Event.Click)
         [250, 9, 10, 505, 305, 17000, 17000, 0, 1, 0, "Buy Now", null, "hash_btn_buy.hash_btn_buy_beta", 1, null, 120, 40, "BUTTON", "cta-buy", "btn-main"],
-        // Scroll event (10 = Event.Scroll)
-        [300, 10, 1, 0, 75]
+        // Scroll event (10 = Event.Scroll): scrollY 150 + viewport 600 of 1000 = 75%
+        [300, 10, 1, 0, 150]
       ]
     });
 
@@ -209,6 +212,8 @@ async function testServerWithRepository(repoName: string, repository: IAnalytics
     assert(Array.isArray(scrollJson.scrollMap), "scrollMap must be an array");
     const reached75 = scrollJson.scrollMap.find((m) => m.scrollReachY === 75);
     assert(reached75?.percUsers === 100, "100% of sessions reached 75% scroll depth");
+    const reached100 = scrollJson.scrollMap.find((m) => m.scrollReachY === 100);
+    assert(reached100?.percUsers === 0, "No session reached 100% scroll depth");
     console.log("   -> Scroll heatmap verified: 75% reach =", reached75?.percUsers, "%");
 
     // 8. Query Page Snapshot (GET /api/v1/heatmaps/snapshot)
@@ -238,34 +243,17 @@ async function testServerWithRepository(repoName: string, repository: IAnalytics
   }
 }
 
-async function main() {
-  console.log("========================================================");
-  console.log("   RUNNING FULL TEST SUITE (MEMORY & POSTGRESQL)");
-  console.log("========================================================");
-
-  // 1. Run tests with In-Memory Repository
+test("server with in-memory repository", async () => {
   await testServerWithRepository("In-Memory Storage", new MemoryAnalyticsRepository());
+});
 
-  // 2. Run tests with Real PostgreSQL Repository
-  const pgConfig = process.env.DATABASE_URL || {
-    host: "/var/run/postgresql",
-    database: "heatmap-backend-local-dummy",
-    user: process.env.USER || "sandro"
-  };
-  const pgRepo = new PgAnalyticsRepository(pgConfig);
+test("server with postgres repository", async () => {
+  test.skip(!process.env.DATABASE_URL, "DATABASE_URL is not set");
+  const pgRepo = new PgAnalyticsRepository(process.env.DATABASE_URL as string);
   try {
     await pgRepo.initSchema();
     await testServerWithRepository("Live PostgreSQL Storage", pgRepo);
   } finally {
     await pgRepo.close();
   }
-
-  console.log("\n========================================================");
-  console.log("   ALL SECTORS 100% TESTED & VERIFIED!");
-  console.log("========================================================");
-}
-
-main().catch((err) => {
-  console.error("Test execution failed:", err);
-  process.exit(1);
 });
