@@ -25,9 +25,11 @@ export function process() {
         // This allows us to reprocess any calls that we missed once Clarity is available on the page
         // Once Clarity script bundle is loaded on the page, we also initialize a "v" property that holds current version
         // We use the presence or absence of "v" to determine if we are attempting to run a duplicate instance
+        let existingVisualize = w[c] && w[c].visualize ? w[c].visualize : null;
         let queue = w[c] ? (w[c].q || []) : [];
         w[c] = function(method: string, ...args: any[]): void { return clarity[method](...args); }
         w[c].v = clarity.version;
+        if (existingVisualize) { w[c].visualize = existingVisualize; }
         while (queue.length > 0) { w[c](...queue.shift()); }
     }
 }

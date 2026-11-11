@@ -252,8 +252,8 @@ function check(xhr: XMLHttpRequest, sequence: number): void {
         if ((xhr.status < 200 || xhr.status > 208) && transitData.attempts <= Setting.RetryLimit) {
             // We re-attempt in all cases except when server explicitly rejects our request with 4XX error
             if (xhr.status >= 400 && xhr.status < 500) {
-                // In case of a 4XX response from the server, we bail out instead of trying again
-                limit.trigger(Check.Server);
+                // Do not kill Clarity instance on 4XX errors; silently drop this sequence and continue tracking
+                delete transit[sequence];
             } else {
                 // Browser will send status = 0 when it refuses to put network request over the wire
                 // This could happen for several reasons, couple of known ones are:

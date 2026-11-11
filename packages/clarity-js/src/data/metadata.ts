@@ -261,7 +261,7 @@ export function callback(consentUpdate: boolean = false): void {
 export function save(): void {
   if (!data || !config.track) return;
   let ts = Math.round(Date.now());
-  let upload = config.upload && typeof config.upload === Constant.String ? (config.upload as string).replace(Constant.HTTPS, Constant.Empty) : Constant.Empty;
+  let upload = config.upload && typeof config.upload === Constant.String ? (config.upload as string) : Constant.Empty;
   let upgrade = config.lean ? BooleanFlag.False : BooleanFlag.True;
   setCookie(Constant.SessionKey, [data.sessionId, ts, data.pageNum, upgrade, upload].join(COOKIE_SEP), Setting.SessionExpire);
 }
@@ -322,8 +322,16 @@ function session(): Session {
       output.session = parts[0];
       output.count = num(parts[2]) + 1;
       output.upgrade = num(parts[3]);
-      output.upload = parts.length >= 6 ? Constant.HTTPS + parts[5] + "/" + parts[4]
-        : parts[4][0] === "/" ? parts[4] : Constant.HTTPS + parts[4];
+      let rawUpload = parts.length >= 6 ? parts[5] + "/" + parts[4] : parts[4];
+      if (rawUpload) {
+        // Sanitize any previously corrupted double-protocol strings (e.g., https://http// or https://http://)
+        rawUpload = rawUpload.replace(/^https?:\/\/(?:https?:\/\/|http\/\/)/i, "http://");
+        if (rawUpload.indexOf("http://") === 0 || rawUpload.indexOf("https://") === 0 || rawUpload[0] === "/") {
+          output.upload = rawUpload;
+        } else {
+          output.upload = Constant.HTTPS + rawUpload;
+        }
+      }
     }
   }
   return output;

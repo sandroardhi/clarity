@@ -37,6 +37,9 @@ function handler(event: Event, root: Node, evt: MouseEvent): void {
     }
 
     let t = target(evt);
+    if (t && t.nodeType === Node.TEXT_NODE && (t.parentElement || t.parentNode)) {
+        t = (t.parentElement || t.parentNode) as Node;
+    }
     // Find nearest anchor tag (<a/>) parent if current target node is part of one
     // If present, we use the returned link element to populate text and link properties below
     let a = link(t);

@@ -59,7 +59,7 @@ export class HeatmapHelper {
     }
 
     public scroll = (activity: ScrollMapInfo[], avgFold: number, addMarkers: boolean): void => {
-        this.scrollData = this.scrollData || activity;
+        this.scrollData = activity || this.scrollData;
         this.scrollAvgFold = avgFold != null ? avgFold : this.scrollAvgFold;
         this.addScrollMakers = addMarkers != null ? addMarkers : this.addScrollMakers;
 
@@ -73,10 +73,11 @@ export class HeatmapHelper {
         canvas.height = Math.min(height, Setting.ScrollCanvasMaxHeight);
         canvas.style.top = 0 + Constant.Pixel;
         if (canvas.width > 0 && canvas.height > 0) {
-            if (this.scrollData) {
+            if (this.scrollData && this.scrollData.length > 0) {
                 const grd = context.createLinearGradient(0, 0, 0, canvas.height);
+                const sum0 = (this.scrollData[0] && this.scrollData[0].cumulativeSum) || 1;
                 for (const currentCombination of this.scrollData) {
-                    const huePercentView = 1 - (currentCombination.cumulativeSum / this.scrollData[0].cumulativeSum);
+                    const huePercentView = 1 - (currentCombination.cumulativeSum / sum0);
                     const percentView = (currentCombination.scrollReachY / 100) * (height / canvas.height);
                     const hue = huePercentView * Setting.MaxHue;
                     if (percentView <= 1) {
@@ -124,7 +125,7 @@ export class HeatmapHelper {
     }
 
     public click = (activity: Activity): void => {
-        this.data = this.data || activity;
+        this.data = activity || this.data;
         let heat = this.transform();
         let canvas = this.overlay();
         let ctx = canvas.getContext(Constant.Context);
@@ -173,6 +174,7 @@ export class HeatmapHelper {
             canvas.height = 0;
             canvas.style.position = Constant.Absolute;
             canvas.style.zIndex = `${Setting.ZIndex}`;
+            canvas.style.pointerEvents = "none";
             de.appendChild(canvas);
             win.addEventListener("scroll", this.redraw, { passive: true, capture: true });
             win.addEventListener("resize", this.redraw, { passive: true, capture: true });
@@ -248,6 +250,9 @@ export class HeatmapHelper {
         let height = this.state.window && this.state.window.document ? this.state.window.document.documentElement.clientHeight : 0;
         for (let element of this.data) {
             let el = this.layout.get(element.hash) as HTMLElement;
+            if (!el && element.selector && this.state && this.state.window && this.state.window.document) {
+                try { el = this.state.window.document.querySelector(element.selector) as HTMLElement; } catch (e) {}
+            }
             if (el && typeof el.getBoundingClientRect === "function") {
                 let r = el.getBoundingClientRect();
                 let v = this.visible(el, r, height);
@@ -265,7 +270,7 @@ export class HeatmapHelper {
         }
 
         // Set the max value from the firs t
-        this.max = this.max ? this.max : localMax;
+        this.max = this.max ? this.max : (localMax || 1);
 
         // Once all points are accounted for, convert everything into absolute (x, y)
         for (let coordinates of Object.keys(points)) {
@@ -288,7 +293,7 @@ export class HeatmapHelper {
                 for (let e of elements) {
                     // Ignore if top element ends up being the canvas element we added for heatmap visualization
                     if (e.tagName === Constant.Canvas || (e.id && e.id.indexOf(Constant.ClarityPrefix) === 0)) { continue; }
-                    visibility = e === el;
+                    visibility = e === el || el.contains(e);
                     shadowElement = e.shadowRoot && e.shadowRoot != doc ? e.shadowRoot : null;
                     break;
                 }

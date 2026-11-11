@@ -1,0 +1,25 @@
+{
+  "name": "clarity-server",
+  "version": "0.8.76",
+  "description": "Whitelabel backend and collector for Skalpl Clarity Heatmaps",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "clarity-decode": "^0.8.76",
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.23.1"
+  }
+}

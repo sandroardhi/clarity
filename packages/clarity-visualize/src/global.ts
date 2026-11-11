@@ -1,9 +1,13 @@
 import * as visualize from "@src/clarity";
+import { Visualizer } from "@src/visualizer";
 
 // Expose clarity variable globally to allow access to public interface in a browser
 if (typeof window !== "undefined") {
-    if ((window as any).clarity === undefined || (window as any).clarity === null) {
-        (window as any).clarity = {};
+    const w = window as any;
+    if (w.clarity === undefined || w.clarity === null) {
+        w.clarity = {};
     }
-    (window as any).clarity.visualize = visualize;
+    w.clarity.visualize = visualize;
+    w.clarityVisualize = visualize;
+    w.Visualizer = Visualizer;
 }
