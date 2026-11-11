@@ -39,7 +39,7 @@ packages/clarity-server/
 
 ### 2. Multi-Tenant Project Management
 - **`POST /api/v1/projects`** or **`PUT /api/v1/projects/:id`** (upsert)
-  - **Headers**: `X-Internal-Secret` (required when `CLARITY_INTERNAL_SECRET` is set)
+  - **Headers**: `X-Internal-Secret` (required)
   - **Body**:
     ```json
     {
@@ -54,11 +54,11 @@ packages/clarity-server/
   - **Response**: `201 Created` (new), `200 OK` (updated), `400` (invalid body), `401` (bad secret)
 
 ### Environment
-- `DATABASE_URL`: required when `NODE_ENV=production`. Outside production, the server falls back to `PGDATABASE` and `PGUSER`.
-- `CLARITY_INTERNAL_SECRET`: required when `NODE_ENV=production`.
+- `DATABASE_URL`: required. It is passed to `pg` as is. For peer auth over the unix socket use `postgresql://user@%2Fvar%2Frun%2Fpostgresql/db`.
+- `CLARITY_INTERNAL_SECRET`: required. The server does not start without it.
 - `PORT`, `HOST`: listen address.
 - `CLARITY_RETENTION_DAYS`: raw clicks and scrolls older than this are deleted at start and every 6 hours. Default 90.
-- In production, `/demo` returns 404 and `/api/v1/demo/*` returns 403.
+- In production, `/demo` returns 404 and `/api/v1/demo/*` returns 403. Outside production, the demo reads `demo_local` through `/api/v1/demo/heatmaps/*` without the secret.
 
 ### 3. Heatmap Data (Skalpl Dashboard)
 - **`GET /api/v1/heatmaps/click?projectId=...&pageUrl=...&device=desktop&from=...&to=...`**

@@ -1,5 +1,4 @@
 import { Pool, PoolConfig } from "pg";
-import fs from "fs";
 import { IAnalyticsRepository, parseSafeTimestamp } from "./repository";
 import { SCHEMA_SQL } from "./schema";
 import {
@@ -22,43 +21,13 @@ const DEFAULT_POOL_CONFIG: Partial<PoolConfig> = {
 export class PgAnalyticsRepository implements IAnalyticsRepository {
   private pool: Pool;
 
-  constructor(configOrPool?: PoolConfig | string | Pool) {
-    if (configOrPool instanceof Pool) {
-      this.pool = configOrPool;
-    } else if (typeof configOrPool === "string") {
-      let resolvedConfig: PoolConfig = { ...DEFAULT_POOL_CONFIG, connectionString: configOrPool };
-      try {
-        const parsed = new URL(configOrPool);
-        // If connecting to localhost without password on Linux, use unix socket for peer auth
-        if (
-          !parsed.password &&
-          (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") &&
-          fs.existsSync("/var/run/postgresql")
-        ) {
-          resolvedConfig = {
-            ...DEFAULT_POOL_CONFIG,
-            host: "/var/run/postgresql",
-            database: parsed.pathname.replace(/^\//, "") || "heatmap-backend-local-dummy",
-            user: parsed.username || process.env.PGUSER || process.env.USER || "sandro"
-          };
-        }
-      } catch {
-        // use default connectionString
-      }
-      this.pool = new Pool(resolvedConfig);
-    } else if (configOrPool) {
-      this.pool = new Pool({ ...DEFAULT_POOL_CONFIG, ...configOrPool });
+  constructor(config: PoolConfig | string | Pool) {
+    if (config instanceof Pool) {
+      this.pool = config;
+    } else if (typeof config === "string") {
+      this.pool = new Pool({ ...DEFAULT_POOL_CONFIG, connectionString: config });
     } else {
-      if (fs.existsSync("/var/run/postgresql")) {
-        this.pool = new Pool({
-          ...DEFAULT_POOL_CONFIG,
-          host: "/var/run/postgresql",
-          database: process.env.PGDATABASE || "heatmap-backend-local-dummy",
-          user: process.env.PGUSER || process.env.USER || "sandro"
-        });
-      } else {
-        this.pool = new Pool(DEFAULT_POOL_CONFIG);
-      }
+      this.pool = new Pool({ ...DEFAULT_POOL_CONFIG, ...config });
     }
   }
 

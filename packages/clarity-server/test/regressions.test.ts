@@ -3,6 +3,7 @@ import http from "http";
 import { IAnalyticsRepository, MemoryAnalyticsRepository } from "../src/db/repository";
 import { PgAnalyticsRepository } from "../src/db/postgres";
 import { createServer } from "../src/server";
+import { AUTH, JSON_AUTH, SECRET } from "./helper";
 import { DEFAULT_RETENTION_DAYS, pruneRawData, retentionDays } from "../src/services/retention";
 
 type Token = (string | number | null | object)[];
@@ -15,7 +16,7 @@ const click: Token = [200, 9, 10, 500, 300, 16383, 16383, 0, 1, 0, "Buy", null, 
 const discover: Token = [100, 5, 1, 0, "HTML", {}];
 
 async function withServer(repository: IAnalyticsRepository, fn: (base: string) => Promise<void>): Promise<void> {
-  const server = http.createServer(createServer({ repository }));
+  const server = http.createServer(createServer({ repository, internalSecret: SECRET }));
   await new Promise<void>((resolve) => server.listen(0, resolve));
   try {
     await fn(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
@@ -38,11 +39,11 @@ async function collect(base: string, body: string, origin?: string): Promise<voi
 }
 
 async function syncProject(base: string, body: object): Promise<Response> {
-  return fetch(`${base}/api/v1/projects`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return fetch(`${base}/api/v1/projects`, { method: "POST", headers: JSON_AUTH, body: JSON.stringify(body) });
 }
 
 async function clickTotal(base: string, projectId: string, url: string): Promise<number> {
-  const res = await fetch(`${base}/api/v1/heatmaps/click?projectId=${projectId}&pageUrl=${encodeURIComponent(url)}`);
+  const res = await fetch(`${base}/api/v1/heatmaps/click?projectId=${projectId}&pageUrl=${encodeURIComponent(url)}`, { headers: AUTH });
   return ((await res.json()) as { totalClicks: number }).totalClicks;
 }
 
@@ -82,7 +83,7 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
 
         const put = await fetch(`${base}/api/v1/projects/${id}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: JSON_AUTH,
           body: JSON.stringify({ name: "Shop", allowedDomains: ["shop.example.com"], isActive: false })
         });
         expect(put.status).toBe(200);
@@ -92,7 +93,7 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
 
         const created = await fetch(`${base}/api/v1/projects/${id}_new`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: JSON_AUTH,
           body: JSON.stringify({ name: "New" })
         });
         expect(created.status).toBe(201);
@@ -106,7 +107,7 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
         expect((await syncProject(base, { id: "bad", name: "B", isActive: "no" })).status).toBe(400);
         const mismatch = await fetch(`${base}/api/v1/projects/a`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: JSON_AUTH,
           body: JSON.stringify({ id: "b", name: "B" })
         });
         expect(mismatch.status).toBe(400);
@@ -170,7 +171,7 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
         await collect(base, payload(id, url, 1, [...size], "still"), ORIGIN);
         await collect(base, payload(id, url, 2, [[300, 10, 1, 0, 2000]], "nosize"), ORIGIN);
 
-        const res = await fetch(`${base}/api/v1/heatmaps/scroll?projectId=${id}&pageUrl=${encodeURIComponent(url)}`);
+        const res = await fetch(`${base}/api/v1/heatmaps/scroll?projectId=${id}&pageUrl=${encodeURIComponent(url)}`, { headers: AUTH });
         const json = (await res.json()) as { totalSessions: number; scrollMap: { scrollReachY: number; cumulativeSum: number }[] };
         const at = (y: number): number | undefined => json.scrollMap.find((m) => m.scrollReachY === y)?.cumulativeSum;
         expect(json.totalSessions).toBe(2);
@@ -193,14 +194,23 @@ test("retention days default to 90 and accept positive integers only", () => {
   expect(retentionDays("abc")).toBe(90);
 });
 
-test("server refuses to start in production without DATABASE_URL", async () => {
-  const env = { db: process.env.DATABASE_URL, node: process.env.NODE_ENV };
+test("server refuses to start without DATABASE_URL or a secret", async () => {
+  const env = { db: process.env.DATABASE_URL, secret: process.env.CLARITY_INTERNAL_SECRET };
   delete process.env.DATABASE_URL;
-  process.env.NODE_ENV = "production";
+  delete process.env.CLARITY_INTERNAL_SECRET;
   try {
-    expect(() => createServer()).toThrow("DATABASE_URL is required in production");
+    expect(() => createServer({ internalSecret: SECRET })).toThrow("DATABASE_URL is required");
+    expect(() => createServer({ repository: new MemoryAnalyticsRepository() })).toThrow("CLARITY_INTERNAL_SECRET is required");
   } finally {
     if (env.db !== undefined) process.env.DATABASE_URL = env.db;
-    if (env.node === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = env.node;
+    if (env.secret !== undefined) process.env.CLARITY_INTERNAL_SECRET = env.secret;
   }
+});
+
+test("management routes reject a missing or wrong secret", async () => {
+  await withServer(new MemoryAnalyticsRepository(), async (base) => {
+    expect((await fetch(`${base}/api/v1/projects/x`)).status).toBe(401);
+    expect((await fetch(`${base}/api/v1/projects/x`, { headers: { "X-Internal-Secret": "wrong" } })).status).toBe(401);
+    expect((await fetch(`${base}/api/v1/projects/x`, { headers: AUTH })).status).toBe(404);
+  });
 });

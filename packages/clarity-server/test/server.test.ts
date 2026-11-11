@@ -5,6 +5,7 @@ import { PgAnalyticsRepository } from "../src/db/postgres";
 import { HeatmapClickResponse, HeatmapScrollResponse, PageSnapshotResponse } from "../src/types";
 import http from "http";
 import zlib from "zlib";
+import { AUTH, JSON_AUTH, SECRET } from "./helper";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -15,7 +16,7 @@ function assert(condition: boolean, message: string): void {
 async function testServerWithRepository(repoName: string, repository: IAnalyticsRepository) {
   console.log(`\n--- [TEST SUITE] Testing Server with ${repoName} ---`);
 
-  const app = createServer({ repository });
+  const app = createServer({ repository, internalSecret: SECRET });
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const port = (server.address() as any).port;
@@ -38,7 +39,7 @@ async function testServerWithRepository(repoName: string, repository: IAnalytics
     console.log("2. Testing Project Registration (POST /api/v1/projects)...");
     const createProjectRes = await fetch(`${baseUrl}/api/v1/projects`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: JSON_AUTH,
       body: JSON.stringify({
         id: testProjectId,
         name: `Skalpl Store ${testSuffix}`,
@@ -185,7 +186,7 @@ async function testServerWithRepository(repoName: string, repository: IAnalytics
     // 6. Query Click Heatmap (GET /api/v1/heatmaps/click)
     console.log("6. Testing Click Heatmap API (/api/v1/heatmaps/click)...");
     const clickQueryUrl = `${baseUrl}/api/v1/heatmaps/click?projectId=${testProjectId}&pageUrl=${encodeURIComponent(testPageUrl)}&device=desktop`;
-    const clickHeatmapRes = await fetch(clickQueryUrl);
+    const clickHeatmapRes = await fetch(clickQueryUrl, { headers: AUTH });
     assert(clickHeatmapRes.status === 200, "Click heatmap query should return 200");
     const clickJson = (await clickHeatmapRes.json()) as HeatmapClickResponse;
 
@@ -204,7 +205,7 @@ async function testServerWithRepository(repoName: string, repository: IAnalytics
     // 7. Query Scroll Heatmap (GET /api/v1/heatmaps/scroll)
     console.log("7. Testing Scroll Heatmap API (/api/v1/heatmaps/scroll)...");
     const scrollQueryUrl = `${baseUrl}/api/v1/heatmaps/scroll?projectId=${testProjectId}&pageUrl=${encodeURIComponent(testPageUrl)}&device=desktop`;
-    const scrollHeatmapRes = await fetch(scrollQueryUrl);
+    const scrollHeatmapRes = await fetch(scrollQueryUrl, { headers: AUTH });
     assert(scrollHeatmapRes.status === 200, "Scroll heatmap query should return 200");
     const scrollJson = (await scrollHeatmapRes.json()) as HeatmapScrollResponse;
 
@@ -219,7 +220,7 @@ async function testServerWithRepository(repoName: string, repository: IAnalytics
     // 8. Query Page Snapshot (GET /api/v1/heatmaps/snapshot)
     console.log("8. Testing Page Snapshot API (/api/v1/heatmaps/snapshot)...");
     const snapshotQueryUrl = `${baseUrl}/api/v1/heatmaps/snapshot?projectId=${testProjectId}&pageUrl=${encodeURIComponent(testPageUrl)}&device=desktop`;
-    const snapshotRes = await fetch(snapshotQueryUrl);
+    const snapshotRes = await fetch(snapshotQueryUrl, { headers: AUTH });
     assert(snapshotRes.status === 200, "Snapshot query should return 200");
     const snapshotJson = (await snapshotRes.json()) as PageSnapshotResponse;
 
@@ -229,7 +230,7 @@ async function testServerWithRepository(repoName: string, repository: IAnalytics
 
     // 9. Query Tracked Pages List (GET /api/v1/projects/:projectId/pages)
     console.log("9. Testing Tracked Pages API (/api/v1/projects/:projectId/pages)...");
-    const pagesRes = await fetch(`${baseUrl}/api/v1/projects/${testProjectId}/pages`);
+    const pagesRes = await fetch(`${baseUrl}/api/v1/projects/${testProjectId}/pages`, { headers: AUTH });
     assert(pagesRes.status === 200, "Tracked pages query should return 200");
     const pagesJson = (await pagesRes.json()) as any;
     assert(Array.isArray(pagesJson.pages), "Pages must be an array");
