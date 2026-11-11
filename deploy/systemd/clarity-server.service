@@ -1,0 +1,22 @@
+[Unit]
+Description=Skalpl clarity-server (heatmap collector and API)
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+User=clarity
+Group=clarity
+WorkingDirectory=/opt/clarity/current/packages/clarity-server
+EnvironmentFile=/etc/clarity-server.env
+ExecStartPre=/usr/bin/node dist/migrate.js
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=768M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,4 @@
-import { IAnalyticsRepository } from "../db/repository";
+import { IAnalyticsRepository, RetentionResult } from "../db/repository";
 
 export const DEFAULT_RETENTION_DAYS = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -9,7 +9,7 @@ export function retentionDays(value: string | undefined): number {
   return Number.isInteger(days) && days > 0 ? days : DEFAULT_RETENTION_DAYS;
 }
 
-export async function pruneRawData(repository: IAnalyticsRepository, days: number, now: number = Date.now()) {
+export async function pruneRawData(repository: IAnalyticsRepository, days: number, now: number = Date.now()): Promise<RetentionResult> {
   return repository.deleteOlderThan(now - days * DAY_MS);
 }
 
@@ -18,8 +18,9 @@ export function startRetention(repository: IAnalyticsRepository, days: number, i
   const run = (): void => {
     pruneRawData(repository, days).then(
       (deleted) => {
-        if (deleted.clicks > 0 || deleted.scrolls > 0) {
-          console.log(`[retention] deleted ${deleted.clicks} clicks and ${deleted.scrolls} scrolls older than ${days} days`);
+        if (deleted.clicks + deleted.scrolls + deleted.snapshots + deleted.pages > 0) {
+          console.log(`[retention] deleted ${deleted.clicks} clicks, ${deleted.scrolls} scrolls, ${deleted.snapshots} snapshots` +
+            ` and ${deleted.pages} page index rows older than ${days} days`);
         }
       },
       (error) => console.error("[retention] prune failed:", error)

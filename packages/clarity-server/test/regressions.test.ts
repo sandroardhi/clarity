@@ -104,7 +104,7 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
       });
     });
 
-    test("retention deletes raw clicks and scrolls older than the cutoff", async () => {
+    test("retention deletes old clicks, scrolls, page index rows and stale snapshots", async () => {
       const repo = makeRepo();
       const id = `ret_${uid()}`;
       const url = "ret.example.com/";
@@ -117,13 +117,26 @@ function suite(name: string, makeRepo: () => IAnalyticsRepository, needsDb: bool
       await repo.saveRawScroll({ ...scroll, id: `${id}-s-old`, sessionId: "a", timestamp: old });
       await repo.saveRawScroll({ ...scroll, id: `${id}-s-new`, sessionId: "b", timestamp: now });
 
+      const page = { projectId: id, device: "desktop" as const, views: 1, clicks: 0 };
+      await repo.recordPageActivity({ ...page, pageKey: "ret.example.com/gone", url: "https://ret.example.com/gone", at: old });
+      await repo.recordPageActivity({ ...page, pageKey: url, url: `https://${url}`, at: old });
+      await repo.recordPageActivity({ ...page, pageKey: url, url: `https://${url}`, at: now });
+      const snap = { projectId: id, device: "desktop" as const, domHash: "d", rawPayload: "{}", timestamp: old };
+      await repo.savePageSnapshot({ ...snap, id: `${id}:gone`, pageUrl: "ret.example.com/gone" });
+      await repo.savePageSnapshot({ ...snap, id: `${id}:live`, pageUrl: url });
+
       const deleted = await pruneRawData(repo, DEFAULT_RETENTION_DAYS, now);
       expect(deleted.clicks).toBeGreaterThanOrEqual(1);
       expect(deleted.scrolls).toBeGreaterThanOrEqual(1);
+      expect(deleted.snapshots).toBeGreaterThanOrEqual(1);
+      expect(deleted.pages).toBeGreaterThanOrEqual(1);
       const again = await pruneRawData(repo, DEFAULT_RETENTION_DAYS, now);
-      expect(again).toEqual({ clicks: 0, scrolls: 0 });
+      expect(again).toEqual({ clicks: 0, scrolls: 0, snapshots: 0, pages: 0 });
       const left = await repo.getClickActivity({ projectId: id, pageUrl: url, device: "desktop" });
       expect(left.reduce((sum, a) => sum + a.totalclicks, 0)).toBe(1);
+      expect((await repo.listPageIndex(id)).map((r) => r.pageKey)).toEqual([url]);
+      expect(await repo.getPageSnapshot(id, "ret.example.com/gone")).toBeNull();
+      expect((await repo.getPageSnapshot(id, url))?.id).toBe(`${id}:live`);
     });
 
     test("scroll reach is a percent of page height and counts non-scrollers", async () => {

@@ -22,6 +22,13 @@ export interface ScrollMapResult {
   avgFoldY: number | null;
 }
 
+export interface RetentionResult {
+  clicks: number;
+  scrolls: number;
+  snapshots: number;
+  pages: number;
+}
+
 export interface PageActivity {
   projectId: string;
   pageKey: string;
@@ -77,8 +84,9 @@ export interface IAnalyticsRepository {
   getDrops(projectId?: string): Promise<Record<string, DropCounts>>;
 
   clearProjectData(projectId: string, pageKey?: string): Promise<void>;
-  // Deletes raw clicks and scrolls with a timestamp before cutoff (epoch ms)
-  deleteOlderThan(cutoff: number): Promise<{ clicks: number; scrolls: number }>;
+  // Deletes clicks and scrolls stamped before cutoff (epoch ms), page index rows last seen before it,
+  // and snapshots older than it whose page and device have no later activity
+  deleteOlderThan(cutoff: number): Promise<RetentionResult>;
   // Throws when the store is unreachable
   ping(): Promise<void>;
 }
@@ -250,12 +258,27 @@ export class MemoryAnalyticsRepository implements IAnalyticsRepository {
     this.rawScrolls = this.rawScrolls.filter(keep);
   }
 
-  public async deleteOlderThan(cutoff: number): Promise<{ clicks: number; scrolls: number }> {
+  public async deleteOlderThan(cutoff: number): Promise<RetentionResult> {
     const clicks = this.rawClicks.length;
     const scrolls = this.rawScrolls.length;
     this.rawClicks = this.rawClicks.filter((c) => c.timestamp >= cutoff);
     this.rawScrolls = this.rawScrolls.filter((s) => s.timestamp >= cutoff);
-    return { clicks: clicks - this.rawClicks.length, scrolls: scrolls - this.rawScrolls.length };
+    let snapshots = 0;
+    for (const [key, s] of this.snapshots) {
+      const page = this.pageIndex.get(`${s.projectId}\u0000${s.pageUrl}\u0000${s.device}`);
+      if (s.timestamp < cutoff && !(page && page.lastSeen >= cutoff)) {
+        this.snapshots.delete(key);
+        snapshots += 1;
+      }
+    }
+    let pages = 0;
+    for (const [key, row] of this.pageIndex) {
+      if (row.lastSeen < cutoff) {
+        this.pageIndex.delete(key);
+        pages += 1;
+      }
+    }
+    return { clicks: clicks - this.rawClicks.length, scrolls: scrolls - this.rawScrolls.length, snapshots, pages };
   }
 
   public async ping(): Promise<void> {

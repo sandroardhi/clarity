@@ -1,5 +1,5 @@
 import { Pool, PoolClient, PoolConfig } from "pg";
-import { buildScrollMap, IAnalyticsRepository, PageActivity, ScrollMapResult, UpsertResult } from "./repository";
+import { buildScrollMap, IAnalyticsRepository, PageActivity, RetentionResult, ScrollMapResult, UpsertResult } from "./repository";
 import { SCHEMA_SQL } from "./schema";
 import { canonicalPageKey, snapshotId } from "../services/pageKey";
 import {
@@ -151,10 +151,17 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
     }
   }
 
-  public async deleteOlderThan(cutoff: number): Promise<{ clicks: number; scrolls: number }> {
+  public async deleteOlderThan(cutoff: number): Promise<RetentionResult> {
     const clicks = await this.pool.query(`DELETE FROM raw_clicks WHERE timestamp < $1`, [cutoff]);
     const scrolls = await this.pool.query(`DELETE FROM raw_scrolls WHERE timestamp < $1`, [cutoff]);
-    return { clicks: clicks.rowCount ?? 0, scrolls: scrolls.rowCount ?? 0 };
+    const snapshots = await this.pool.query(
+      `DELETE FROM page_snapshots s WHERE s.timestamp < $1 AND NOT EXISTS (
+         SELECT 1 FROM page_index p
+         WHERE p.project_id = s.project_id AND p.page_key = s.page_url AND p.device = s.device AND p.last_seen >= $1)`,
+      [cutoff]
+    );
+    const pages = await this.pool.query(`DELETE FROM page_index WHERE last_seen < $1`, [cutoff]);
+    return { clicks: clicks.rowCount ?? 0, scrolls: scrolls.rowCount ?? 0, snapshots: snapshots.rowCount ?? 0, pages: pages.rowCount ?? 0 };
   }
 
   public async close(): Promise<void> {

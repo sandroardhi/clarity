@@ -115,4 +115,15 @@ test.describe("postgres repository", () => {
       firstSeen: 1000, lastSeen: 3000, views: 1, clicks: 2
     }]);
   });
+  test("retention has timestamp indexes and the unused group index is gone", async () => {
+    const pool = repo.getPool();
+    await pool.query("CREATE INDEX IF NOT EXISTS idx_raw_clicks_group ON raw_clicks (project_id, page_url, hash, e_x, e_y)");
+    await repo.migrate();
+    const { rows } = await pool.query("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND indexname LIKE 'idx_%'");
+    const names = rows.map((r: { indexname: string }) => r.indexname);
+    expect(names).not.toContain("idx_raw_clicks_group");
+    expect(names).toEqual(expect.arrayContaining([
+      "idx_raw_clicks_timestamp", "idx_raw_scrolls_timestamp", "idx_page_snapshots_timestamp", "idx_page_index_last_seen"
+    ]));
+  });
 });

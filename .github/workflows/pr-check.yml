@@ -17,4 +17,6 @@ jobs:
     - run: yarn install
     - run: yarn build
     - run: npx playwright install chromium chrome --with-deps
+    - name: Skalpl isolation tests
+      run: npx playwright test --project=clarity-js packages/clarity-js/test/isolation.test.ts --retries=0
     - run: yarn test

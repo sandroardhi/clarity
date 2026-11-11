@@ -22,9 +22,6 @@ CREATE TABLE IF NOT EXISTS raw_clicks (
 CREATE INDEX IF NOT EXISTS idx_raw_clicks_lookup
     ON raw_clicks (project_id, page_url, device, timestamp);
 
-CREATE INDEX IF NOT EXISTS idx_raw_clicks_group
-    ON raw_clicks (project_id, page_url, hash, e_x, e_y);
-
 CREATE TABLE IF NOT EXISTS raw_scrolls (
     id VARCHAR(100) PRIMARY KEY,
     project_id VARCHAR(100) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -76,6 +73,14 @@ CREATE TABLE IF NOT EXISTS ingest_drops (
     last_at BIGINT NOT NULL,
     PRIMARY KEY (project_id, reason)
 );
+
+DROP INDEX IF EXISTS idx_raw_clicks_group;
+
+-- Retention deletes by age across all projects
+CREATE INDEX IF NOT EXISTS idx_raw_clicks_timestamp ON raw_clicks (timestamp);
+CREATE INDEX IF NOT EXISTS idx_raw_scrolls_timestamp ON raw_scrolls (timestamp);
+CREATE INDEX IF NOT EXISTS idx_page_snapshots_timestamp ON page_snapshots (timestamp);
+CREATE INDEX IF NOT EXISTS idx_page_index_last_seen ON page_index (last_seen);
 
 CREATE TABLE IF NOT EXISTS schema_migrations (
     name VARCHAR(100) PRIMARY KEY,

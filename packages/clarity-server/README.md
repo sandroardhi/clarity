@@ -71,7 +71,7 @@ packages/clarity-server/
 - `PORT`, `HOST`: listen address.
 - `CLARITY_INTERNAL_SECRET_PREVIOUS`: optional. Also accepted while a secret rotation is in progress. Remove it when the rotation is done.
 - `CLARITY_SESSION_ROWS_PER_MIN` (default 300) and `CLARITY_PROJECT_ROWS_PER_MIN` (default 30000): caps on stored rows (clicks plus one scroll row per beacon) per minute. A beacon over a cap gets `429`, which makes clarity-js stop recording that page, and counts as drop `rate_limited`.
-- `CLARITY_RETENTION_DAYS`: raw clicks and scrolls older than this are deleted at start and every 6 hours. Default 90.
+- `CLARITY_RETENTION_DAYS`: deleted at start and every 6 hours: raw clicks and scrolls older than this, page index rows not seen in this time, and snapshots older than this whose page and device had no activity in this time. Default 90.
 - In production, `/demo` returns 404 and `/api/v1/demo/*` returns 403. Outside production, the demo reads `demo_local` through `/api/v1/demo/heatmaps/*` without the secret.
 
 ### 3. Heatmap Data (Skalpl Dashboard)
