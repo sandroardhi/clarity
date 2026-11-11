@@ -1,6 +1,7 @@
 import { Activity, Constant, Heatmap, Setting, ScrollMapInfo, PlaybackState } from "@clarity-types/visualize";
 import { Data } from "clarity-js";
 import { LayoutHelper } from "./layout";
+import { usableSelector } from "./selector";
 
 export class HeatmapHelper {
     static COLORS = ["blue", "cyan", "lime", "yellow", "red"];
@@ -254,7 +255,7 @@ export class HeatmapHelper {
         let height = this.state.window && this.state.window.document ? this.state.window.document.documentElement.clientHeight : 0;
         for (let element of this.data) {
             let el = this.layout.get(element.hash) as HTMLElement;
-            if (!el && element.selector && this.state && this.state.window && this.state.window.document) {
+            if (!el && usableSelector(element.selector) && this.state && this.state.window && this.state.window.document) {
                 try { el = this.state.window.document.querySelector(element.selector) as HTMLElement; } catch (e) { el = null; }
             }
             if (el && typeof el.getBoundingClientRect === "function") {
