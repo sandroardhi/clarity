@@ -324,8 +324,8 @@ function session(): Session {
       output.upgrade = num(parts[3]);
       let rawUpload = parts.length >= 6 ? parts[5] + "/" + parts[4] : parts[4];
       if (rawUpload) {
-        // Sanitize any previously corrupted double-protocol strings (e.g., https://http// or https://http://)
-        rawUpload = rawUpload.replace(/^https?:\/\/(?:https?:\/\/|http\/\/)/i, "http://");
+        // Repair a doubled scheme written by older builds (e.g. https://http://, https://http//); keep the inner scheme
+        rawUpload = rawUpload.replace(/^https?:\/\/(https?):?\/\//i, "$1://");
         if (rawUpload.indexOf("http://") === 0 || rawUpload.indexOf("https://") === 0 || rawUpload[0] === "/") {
           output.upload = rawUpload;
         } else {

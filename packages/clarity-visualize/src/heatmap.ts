@@ -125,7 +125,11 @@ export class HeatmapHelper {
     }
 
     public click = (activity: Activity): void => {
-        this.data = activity || this.data;
+        // New activity needs a fresh scale; redraws call this without arguments and keep the old one
+        if (activity) {
+            this.data = activity;
+            this.max = null;
+        }
         let heat = this.transform();
         let canvas = this.overlay();
         let ctx = canvas.getContext(Constant.Context);
@@ -251,7 +255,7 @@ export class HeatmapHelper {
         for (let element of this.data) {
             let el = this.layout.get(element.hash) as HTMLElement;
             if (!el && element.selector && this.state && this.state.window && this.state.window.document) {
-                try { el = this.state.window.document.querySelector(element.selector) as HTMLElement; } catch (e) {}
+                try { el = this.state.window.document.querySelector(element.selector) as HTMLElement; } catch (e) { el = null; }
             }
             if (el && typeof el.getBoundingClientRect === "function") {
                 let r = el.getBoundingClientRect();
