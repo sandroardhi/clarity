@@ -10,15 +10,8 @@ import {
   DeviceType
 } from "../types";
 
-export function parseSafeTimestamp(
-  value: string | undefined,
-  defaultVal: number,
-  endOfDay: boolean = false
-): number {
-  if (!value || value === "all" || value === "now") return defaultVal;
-  const timeStr = endOfDay ? `${value}T23:59:59.999Z` : `${value}T00:00:00Z`;
-  const parsed = new Date(timeStr).getTime();
-  return Number.isNaN(parsed) ? defaultVal : parsed;
+function inRange(timestamp: number, query: HeatmapQuery): boolean {
+  return (query.from == null || timestamp >= query.from) && (query.to == null || timestamp < query.to);
 }
 
 export interface IAnalyticsRepository {
@@ -84,8 +77,6 @@ export class MemoryAnalyticsRepository implements IAnalyticsRepository {
   }
 
   public async getClickActivity(query: HeatmapQuery): Promise<Activity> {
-    const fromTimestamp = parseSafeTimestamp(query.from, 0, false);
-    const toTimestamp = parseSafeTimestamp(query.to, Number.MAX_SAFE_INTEGER, true);
     const targetDevice = query.device;
 
     // Filter clicks
@@ -93,7 +84,7 @@ export class MemoryAnalyticsRepository implements IAnalyticsRepository {
       if (c.projectId !== query.projectId) return false;
       if (c.pageUrl !== query.pageUrl) return false;
       if (targetDevice && c.device !== targetDevice) return false;
-      if (c.timestamp < fromTimestamp || c.timestamp > toTimestamp) return false;
+      if (!inRange(c.timestamp, query)) return false;
       return true;
     });
 
@@ -176,15 +167,13 @@ export class MemoryAnalyticsRepository implements IAnalyticsRepository {
   public async getScrollMap(
     query: HeatmapQuery
   ): Promise<{ scrollMap: ScrollMapInfo[]; totalSessions: number; avgFoldY: number }> {
-    const fromTimestamp = parseSafeTimestamp(query.from, 0, false);
-    const toTimestamp = parseSafeTimestamp(query.to, Number.MAX_SAFE_INTEGER, true);
     const targetDevice = query.device;
 
     const matched = this.rawScrolls.filter((s) => {
       if (s.projectId !== query.projectId) return false;
       if (s.pageUrl !== query.pageUrl) return false;
       if (targetDevice && s.device !== targetDevice) return false;
-      if (s.timestamp < fromTimestamp || s.timestamp > toTimestamp) return false;
+      if (!inRange(s.timestamp, query)) return false;
       return true;
     });
 

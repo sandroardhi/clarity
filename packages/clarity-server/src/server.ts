@@ -9,6 +9,7 @@ import { IAnalyticsRepository } from "./db/repository";
 import { registerDemo } from "./demo";
 import { PgAnalyticsRepository } from "./db/postgres";
 import { CollectorService } from "./services/collector";
+import { BadRequestError, parseTimeRange, TimeRange } from "./services/timeRange";
 import {
   CreateProjectInput,
   DeviceType,
@@ -88,6 +89,7 @@ export function createServer(options: ServerOptions = {}): Express {
   // 2. Ingestion Route (Telemetry Collector)
   // ----------------------------------------------------
   app.post("/api/v1/collect", async (req: Request, res: Response) => {
+    const receivedAt = Date.now();
     try {
       let rawPayload = "";
       if (Buffer.isBuffer(req.body)) {
@@ -113,7 +115,7 @@ export function createServer(options: ServerOptions = {}): Express {
         const origin = (req.headers["origin"] || req.headers["referer"]) as string | undefined;
         const userAgent = req.headers["user-agent"] as string | undefined;
 
-        await collector.processPayload(rawPayload, origin, userAgent);
+        await collector.processPayload(rawPayload, origin, userAgent, receivedAt);
       }
     } catch (error: any) {
       // Log warning on server, but never return 4xx to prevent client clarity-js from terminating
@@ -130,10 +132,19 @@ export function createServer(options: ServerOptions = {}): Express {
 
   // Click Heatmap
   app.get("/api/v1/heatmaps/click", async (req: Request, res: Response) => {
-    const { projectId, pageUrl, device, from, to } = req.query as Record<string, string | undefined>;
+    const { projectId, pageUrl, device, from, to, tz } = req.query as Record<string, string | undefined>;
 
     if (!projectId || !pageUrl) {
       res.status(400).json({ error: "Missing required query parameters: projectId, pageUrl" });
+      return;
+    }
+
+    let range: TimeRange;
+    try {
+      range = parseTimeRange(from, to, tz);
+    } catch (error) {
+      if (!(error instanceof BadRequestError)) throw error;
+      res.status(400).json({ error: error.message });
       return;
     }
 
@@ -141,8 +152,7 @@ export function createServer(options: ServerOptions = {}): Express {
       projectId,
       pageUrl,
       device: device as DeviceType | undefined,
-      from,
-      to
+      ...range
     };
 
     const activity = await repository.getClickActivity(query);
@@ -152,8 +162,8 @@ export function createServer(options: ServerOptions = {}): Express {
       projectId,
       pageUrl,
       device: (device as DeviceType) || "desktop",
-      from: from || "all",
-      to: to || "now",
+      from: range.from,
+      to: range.to,
       totalClicks,
       activity
     };
@@ -163,10 +173,19 @@ export function createServer(options: ServerOptions = {}): Express {
 
   // Scroll Heatmap
   app.get("/api/v1/heatmaps/scroll", async (req: Request, res: Response) => {
-    const { projectId, pageUrl, device, from, to } = req.query as Record<string, string | undefined>;
+    const { projectId, pageUrl, device, from, to, tz } = req.query as Record<string, string | undefined>;
 
     if (!projectId || !pageUrl) {
       res.status(400).json({ error: "Missing required query parameters: projectId, pageUrl" });
+      return;
+    }
+
+    let range: TimeRange;
+    try {
+      range = parseTimeRange(from, to, tz);
+    } catch (error) {
+      if (!(error instanceof BadRequestError)) throw error;
+      res.status(400).json({ error: error.message });
       return;
     }
 
@@ -174,8 +193,7 @@ export function createServer(options: ServerOptions = {}): Express {
       projectId,
       pageUrl,
       device: device as DeviceType | undefined,
-      from,
-      to
+      ...range
     };
 
     const { scrollMap, totalSessions, avgFoldY } = await repository.getScrollMap(query);
@@ -184,8 +202,8 @@ export function createServer(options: ServerOptions = {}): Express {
       projectId,
       pageUrl,
       device: (device as DeviceType) || "desktop",
-      from: from || "all",
-      to: to || "now",
+      from: range.from,
+      to: range.to,
       totalSessions,
       scrollMap,
       averageFoldY: avgFoldY

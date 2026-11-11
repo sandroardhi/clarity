@@ -35,7 +35,10 @@ export interface RawClickRecord {
   selector: string;
   eX: number; // 0..32767 (element-relative coordinate)
   eY: number; // 0..32767
+  // Server receive time, epoch ms; filters and retention use it
   timestamp: number;
+  // Browser clock from the payload; null when the payload has none
+  clientTime: number | null;
 }
 
 export interface DailyClickRollup {
@@ -58,6 +61,7 @@ export interface RawScrollRecord {
   sessionId: string;
   maxScrollReachY: number; // 0..100 (%)
   timestamp: number;
+  clientTime: number | null;
 }
 
 export interface DailyScrollRollup {
@@ -110,16 +114,17 @@ export interface HeatmapQuery {
   projectId: string;
   pageUrl: string;
   device?: DeviceType;
-  from?: string; // YYYY-MM-DD
-  to?: string;   // YYYY-MM-DD
+  // Epoch ms; from is inclusive, to is exclusive, null is unbounded
+  from?: number | null;
+  to?: number | null;
 }
 
 export interface HeatmapClickResponse {
   projectId: string;
   pageUrl: string;
   device: DeviceType;
-  from: string;
-  to: string;
+  from: number | null;
+  to: number | null;
   totalClicks: number;
   activity: Activity;
 }
@@ -128,8 +133,8 @@ export interface HeatmapScrollResponse {
   projectId: string;
   pageUrl: string;
   device: DeviceType;
-  from: string;
-  to: string;
+  from: number | null;
+  to: number | null;
   totalSessions: number;
   scrollMap: ScrollMapInfo[];
   averageFoldY: number;

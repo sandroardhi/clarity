@@ -48,4 +48,12 @@ CREATE TABLE IF NOT EXISTS page_snapshots (
     timestamp BIGINT NOT NULL,
     CONSTRAINT uq_page_snapshot UNIQUE (project_id, page_url, device)
 );
+
+ALTER TABLE raw_clicks ADD COLUMN IF NOT EXISTS client_time BIGINT;
+ALTER TABLE raw_scrolls ADD COLUMN IF NOT EXISTS client_time BIGINT;
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    name VARCHAR(100) PRIMARY KEY,
+    applied_at BIGINT NOT NULL
+);
 `;

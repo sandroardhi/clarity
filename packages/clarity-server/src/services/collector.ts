@@ -16,7 +16,8 @@ export class CollectorService {
   public async processPayload(
     rawPayload: string,
     originHeader?: string,
-    userAgentHeader?: string
+    userAgentHeader?: string,
+    receivedAt: number = Date.now()
   ): Promise<IngestionResult> {
     if (!rawPayload || typeof rawPayload !== "string") {
       throw new Error("Invalid payload: payload must be a non-empty string");
@@ -46,7 +47,8 @@ export class CollectorService {
 
     const device = this.detectDevice(userAgentHeader);
     const pageUrl = this.normalizeUrl(envelope.url);
-    const timestamp = decoded.timestamp || Date.now();
+    const timestamp = receivedAt;
+    const clientTime = decoded.timestamp || null;
 
     let clicksCount = 0;
     let scrollRecorded = false;
@@ -78,7 +80,8 @@ export class CollectorService {
           selector,
           eX: c.eX,
           eY: c.eY,
-          timestamp
+          timestamp,
+          clientTime
         });
       }
 
@@ -99,7 +102,8 @@ export class CollectorService {
         device,
         sessionId: envelope.sessionId,
         maxScrollReachY: maxReachPercent,
-        timestamp
+        timestamp,
+        clientTime
       };
 
       await this.repository.saveRawScroll(scrollRecord);

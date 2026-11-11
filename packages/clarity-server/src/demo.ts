@@ -36,7 +36,8 @@ export function registerDemo(app: Express, repository: IAnalyticsRepository): vo
           selector,
           eX,
           eY,
-          timestamp: now - (count - i) * 25000
+          timestamp: now - (count - i) * 25000,
+          clientTime: null
         });
       }
     };
@@ -86,7 +87,8 @@ export function registerDemo(app: Express, repository: IAnalyticsRepository): vo
           device: "desktop",
           sessionId: `mock-session-${sessionIdx}`,
           maxScrollReachY: group.maxReach,
-          timestamp: now - sessionIdx * 45000
+          timestamp: now - sessionIdx * 45000,
+          clientTime: null
         });
       }
     }

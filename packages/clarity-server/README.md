@@ -61,6 +61,8 @@ packages/clarity-server/
 - In production, `/demo` returns 404 and `/api/v1/demo/*` returns 403. Outside production, the demo reads `demo_local` through `/api/v1/demo/heatmaps/*` without the secret.
 
 ### 3. Heatmap Data (Skalpl Dashboard)
+- `from` and `to` are ISO 8601 with an offset (`2026-11-11T00:00:00+07:00`), or `Y-m-d` with `tz` (an IANA zone such as `Asia/Jakarta`, or `+07:00`). `from` is inclusive and `to` is exclusive; a `Y-m-d` `to` covers that whole day. Omit them for no bound. Anything else returns 400.
+- Filters and retention use the server receive time. The browser clock is kept in `client_time`.
 - **`GET /api/v1/heatmaps/click?projectId=...&pageUrl=...&device=desktop&from=...&to=...`**
   - Returns: `HeatmapClickResponse` (`activity: Activity` array of `{ hash, selector, totalclicks, x, y, clicks, points }`).
 - **`GET /api/v1/heatmaps/scroll?projectId=...&pageUrl=...&device=desktop`**

@@ -1,5 +1,5 @@
-import { Pool, PoolConfig } from "pg";
-import { IAnalyticsRepository, parseSafeTimestamp } from "./repository";
+import { Pool, PoolClient, PoolConfig } from "pg";
+import { IAnalyticsRepository } from "./repository";
 import { SCHEMA_SQL } from "./schema";
 import {
   Project,
@@ -17,6 +17,18 @@ const DEFAULT_POOL_CONFIG: Partial<PoolConfig> = {
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000
 };
+
+// Run once each, in order, after SCHEMA_SQL. Never edit or reorder a released step.
+const DATA_MIGRATIONS: { name: string; run: (client: PoolClient) => Promise<unknown> }[] = [
+  {
+    // Rows written before receive time existed hold the browser clock in timestamp
+    name: "001_client_time_from_timestamp",
+    run: async (client) => {
+      await client.query("UPDATE raw_clicks SET client_time = timestamp WHERE client_time IS NULL");
+      await client.query("UPDATE raw_scrolls SET client_time = timestamp WHERE client_time IS NULL");
+    }
+  }
+];
 
 export class PgAnalyticsRepository implements IAnalyticsRepository {
   private pool: Pool;
@@ -38,6 +50,24 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
   // Applies the schema. Idempotent; run it as a deploy step with `yarn migrate:server`, not per request.
   public async migrate(): Promise<void> {
     await this.pool.query(SCHEMA_SQL);
+    for (const migration of DATA_MIGRATIONS) {
+      const client = await this.pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("LOCK TABLE schema_migrations IN EXCLUSIVE MODE");
+        const done = await client.query("SELECT 1 FROM schema_migrations WHERE name = $1", [migration.name]);
+        if (done.rowCount === 0) {
+          await migration.run(client);
+          await client.query("INSERT INTO schema_migrations (name, applied_at) VALUES ($1, $2)", [migration.name, Date.now()]);
+        }
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
   }
 
   public async deleteOlderThan(cutoff: number): Promise<{ clicks: number; scrolls: number }> {
@@ -123,9 +153,9 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
     const placeholders: string[] = [];
 
     clicks.forEach((c, idx) => {
-      const offset = idx * 9;
+      const offset = idx * 10;
       placeholders.push(
-        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9})`
+        `(${Array.from({ length: 10 }, (_, i) => `$${offset + i + 1}`).join(", ")})`
       );
       values.push(
         c.id,
@@ -136,12 +166,13 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
         c.selector,
         c.eX,
         c.eY,
-        c.timestamp
+        c.timestamp,
+        c.clientTime
       );
     });
 
     const query = `
-      INSERT INTO raw_clicks (id, project_id, page_url, device, hash, selector, e_x, e_y, timestamp)
+      INSERT INTO raw_clicks (id, project_id, page_url, device, hash, selector, e_x, e_y, timestamp, client_time)
       VALUES ${placeholders.join(", ")}
       ON CONFLICT (id) DO NOTHING
     `;
@@ -150,8 +181,6 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
   }
 
   public async getClickActivity(query: HeatmapQuery): Promise<Activity> {
-    const fromTimestamp = parseSafeTimestamp(query.from, 0, false);
-    const toTimestamp = parseSafeTimestamp(query.to, Number.MAX_SAFE_INTEGER, true);
     const targetDevice = query.device || null;
 
     const sql = `
@@ -165,8 +194,8 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
       WHERE project_id = $1
         AND page_url = $2
         AND ($3::text IS NULL OR device = $3)
-        AND timestamp >= $4
-        AND timestamp <= $5
+        AND ($4::bigint IS NULL OR timestamp >= $4)
+        AND ($5::bigint IS NULL OR timestamp < $5)
       GROUP BY hash, selector, e_x, e_y
     `;
 
@@ -174,8 +203,8 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
       query.projectId,
       query.pageUrl,
       targetDevice,
-      fromTimestamp,
-      toTimestamp
+      query.from ?? null,
+      query.to ?? null
     ]);
 
     // Group rows by hash to form the Activity structure (ElementData[])
@@ -227,11 +256,12 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
 
   public async saveRawScroll(scroll: RawScrollRecord): Promise<void> {
     const query = `
-      INSERT INTO raw_scrolls (id, project_id, page_url, device, session_id, max_scroll_reach_y, timestamp)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO raw_scrolls (id, project_id, page_url, device, session_id, max_scroll_reach_y, timestamp, client_time)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT (id) DO UPDATE
       SET max_scroll_reach_y = GREATEST(raw_scrolls.max_scroll_reach_y, EXCLUDED.max_scroll_reach_y),
-          timestamp = EXCLUDED.timestamp
+          timestamp = EXCLUDED.timestamp,
+          client_time = EXCLUDED.client_time
     `;
 
     await this.pool.query(query, [
@@ -241,15 +271,14 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
       scroll.device,
       scroll.sessionId,
       scroll.maxScrollReachY,
-      scroll.timestamp
+      scroll.timestamp,
+      scroll.clientTime
     ]);
   }
 
   public async getScrollMap(
     query: HeatmapQuery
   ): Promise<{ scrollMap: ScrollMapInfo[]; totalSessions: number; avgFoldY: number }> {
-    const fromTimestamp = parseSafeTimestamp(query.from, 0, false);
-    const toTimestamp = parseSafeTimestamp(query.to, Number.MAX_SAFE_INTEGER, true);
     const targetDevice = query.device || null;
 
     const sql = `
@@ -261,8 +290,8 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
         WHERE project_id = $1
           AND page_url = $2
           AND ($3::text IS NULL OR device = $3)
-          AND timestamp >= $4
-          AND timestamp <= $5
+          AND ($4::bigint IS NULL OR timestamp >= $4)
+          AND ($5::bigint IS NULL OR timestamp < $5)
         GROUP BY session_id
       )
       SELECT 
@@ -279,8 +308,8 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
       query.projectId,
       query.pageUrl,
       targetDevice,
-      fromTimestamp,
-      toTimestamp
+      query.from ?? null,
+      query.to ?? null
     ]);
 
     const row = res.rows[0];
